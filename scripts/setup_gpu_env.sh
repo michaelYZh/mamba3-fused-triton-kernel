@@ -18,9 +18,7 @@ set -e  # 遇到错误立即退出
 CONDA_ENV_NAME="mamba3"
 PYTHON_VERSION="3.11"
 PROJECT_DIR="$HOME/mamba3-fused-triton-kernel"
-REPO_URL="https://github.com/$(git -C "$(dirname "$0")/.." remote get-url origin 2>/dev/null | sed -E 's|.*github.com[:/]([^/]+/[^.]+)(\.git)?|\1|' || echo 'YOUR_USERNAME/mamba3-fused-triton-kernel').git"
-# 注意: push 到 GitHub 后此 URL 会自动解析为你的仓库地址
-# 也可手动指定: REPO_URL="https://github.com/YOUR_USERNAME/mamba3-fused-triton-kernel.git"
+REPO_URL="https://github.com/michaelYZh/mamba3-fused-triton-kernel.git"
 
 # 解析命令行参数
 INSTALL_NSIGHT=false
