@@ -1,0 +1,3 @@
+[submodule "references/mamba3-pytorch"]
+	path = references/mamba3-pytorch
+	url = https://github.com/rishikksh20/mamba3-pytorch.git

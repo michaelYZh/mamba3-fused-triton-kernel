@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and outputs
+logs/*.log
+*.prof
+*.trace
+
+# Model weights (never commit these)
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+
+# Triton cache
+.triton/
+
+# Codebuddy internal
+.codebuddy/
+
+# Nsight profile outputs
+*.ncu-rep
+*.nsight-cuprof-report
+*.qdrep
+*.qdstrm
+
+# Benchmark outputs
+logs/*.csv
+logs/*.json
