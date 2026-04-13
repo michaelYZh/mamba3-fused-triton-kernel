@@ -18,7 +18,9 @@ set -e  # 遇到错误立即退出
 CONDA_ENV_NAME="mamba3"
 PYTHON_VERSION="3.11"
 PROJECT_DIR="$HOME/mamba3-fused-triton-kernel"
-REPO_URL="https://github.com/michaelYZh/mamba3-fused-triton-kernel.git"
+REPO_OWNER="michaelYZh"
+REPO_NAME="mamba3-fused-triton-kernel"
+REPO_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
 
 # 解析命令行参数
 INSTALL_NSIGHT=false
@@ -256,7 +258,12 @@ else
         git submodule update --init --recursive 2>/dev/null || true
     else
         info "克隆仓库到 $PROJECT_DIR ..."
-        git clone --recurse-submodules "$REPO_URL" "$PROJECT_DIR"
+        # 优先使用 gh CLI (已认证), 否则回退到 git clone
+        if command -v gh &> /dev/null && gh auth status &> /dev/null; then
+            gh repo clone ${REPO_OWNER}/${REPO_NAME} "$PROJECT_DIR" -- --recurse-submodules
+        else
+            git clone --recurse-submodules "$REPO_URL" "$PROJECT_DIR"
+        fi
     fi
     
     success "代码就绪: $PROJECT_DIR"

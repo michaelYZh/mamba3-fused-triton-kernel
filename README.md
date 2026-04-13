@@ -127,8 +127,8 @@ python benchmarks/run_bench.py --mode both --seq-len 256
 ## Milestones
 
 - [x] Project scaffolding and planning
-- [x] Day 1: Environment setup + algorithm deep-dive
-- [x] Day 2: SISO fused kernel (core + trapezoidal + RoPE)
-- [x] Day 3: MIMO fused kernel + correctness tests
-- [ ] Day 4: Performance optimization and Triton tuning
-- [ ] Day 5: Full benchmark suite + documentation
+- [x] Environment setup + algorithm deep-dive
+- [x] SISO fused kernel (core + trapezoidal + RoPE)
+- [x] MIMO fused kernel + correctness tests
+- [ ] Performance optimization and Triton tuning
+- [ ] Full benchmark suite + documentation
