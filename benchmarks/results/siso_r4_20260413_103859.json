@@ -1,0 +1,89 @@
+{
+  "timestamp": "2026-04-13T10:38:38.990132",
+  "config": {
+    "mode": "siso",
+    "mimo_rank": 1,
+    "seq_len": 1024,
+    "batch_sizes": [
+      1,
+      4,
+      16,
+      64
+    ],
+    "d_model": 512,
+    "d_state": 128,
+    "headdim": 64,
+    "device": "cuda",
+    "gpu_name": "NVIDIA A100-PCIE-40GB"
+  },
+  "single_step": {
+    "1": {
+      "pytorch_ms": 1.2669011182151735,
+      "triton_ms": 0.9248049603775144,
+      "cuda_graph_ms": 0.2483269385993481,
+      "speedup_triton": 1.369911681375511,
+      "speedup_cuda_graph": 5.1017466142052275
+    },
+    "4": {
+      "pytorch_ms": 1.2491535395383835,
+      "triton_ms": 0.9364207996986806,
+      "cuda_graph_ms": 0.14482386177405715,
+      "speedup_triton": 1.3339660331555356,
+      "speedup_cuda_graph": 8.625329584755963
+    },
+    "16": {
+      "pytorch_ms": 1.3829585607163608,
+      "triton_ms": 0.9594825399108231,
+      "cuda_graph_ms": 0.19130612025037408,
+      "speedup_triton": 1.441358756611555,
+      "speedup_cuda_graph": 7.229034590772098
+    },
+    "64": {
+      "pytorch_ms": 5.977888382039964,
+      "triton_ms": 1.054180460050702,
+      "cuda_graph_ms": 0.30916088027879596,
+      "speedup_triton": 5.67064995850184,
+      "speedup_cuda_graph": 19.335849919463314
+    }
+  },
+  "autoregressive": {
+    "1": {
+      "pytorch": {
+        "total_ms": 1151.2390777158241,
+        "per_token_ms": 1.1242569118318595,
+        "tokens_per_sec": 889.4764083510096
+      },
+      "triton": {
+        "total_ms": 975.9591879944006,
+        "per_token_ms": 0.9530851445257819,
+        "tokens_per_sec": 1049.2242017868834
+      },
+      "cuda_graph": {
+        "total_ms": 152.55493802639344,
+        "per_token_ms": 0.14897943166639985,
+        "tokens_per_sec": 6712.335983662741
+      },
+      "speedup_triton": 1.1795975609201694,
+      "speedup_cuda_graph": 7.546390124170539
+    },
+    "4": {
+      "pytorch": {
+        "total_ms": 1109.1349336396281,
+        "per_token_ms": 1.0831395836324493,
+        "tokens_per_sec": 923.242041110131
+      },
+      "triton": {
+        "total_ms": 988.056279020384,
+        "per_token_ms": 0.9648987099808437,
+        "tokens_per_sec": 1036.3782121958202
+      },
+      "cuda_graph": {
+        "total_ms": 171.19835398625582,
+        "per_token_ms": 0.16718589256470295,
+        "tokens_per_sec": 5981.365919453928
+      },
+      "speedup_triton": 1.1225422652435229,
+      "speedup_cuda_graph": 6.47865419155065
+    }
+  }
+}

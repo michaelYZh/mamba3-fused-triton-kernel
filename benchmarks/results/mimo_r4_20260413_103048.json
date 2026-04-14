@@ -1,0 +1,42 @@
+{
+  "timestamp": "2026-04-13T10:30:46.879711",
+  "config": {
+    "mode": "mimo",
+    "mimo_rank": 4,
+    "seq_len": 256,
+    "batch_sizes": [
+      1,
+      8,
+      32,
+      128
+    ],
+    "d_model": 256,
+    "d_state": 64,
+    "headdim": 32,
+    "device": "cuda",
+    "gpu_name": "NVIDIA A100-PCIE-40GB"
+  },
+  "single_step": {
+    "1": {
+      "pytorch_ms": 1.1546647804789245,
+      "triton_ms": 0.9283126401714981,
+      "speedup": 1.243831798159734
+    },
+    "8": {
+      "pytorch_ms": 1.2818583403714001,
+      "triton_ms": 0.9435353800654411,
+      "speedup": 1.3585694479018835
+    },
+    "32": {
+      "pytorch_ms": 1.2588950991630554,
+      "triton_ms": 0.9517782810144126,
+      "speedup": 1.3226768505594761
+    },
+    "128": {
+      "pytorch_ms": 1.2627910007722676,
+      "triton_ms": 1.0527169005945325,
+      "speedup": 1.1995542201888216
+    }
+  },
+  "autoregressive": {}
+}

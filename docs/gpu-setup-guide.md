@@ -181,29 +181,25 @@ git add -A && git commit && git push
 - [x] GitHub 仓库初始化并推送
 - [x] GPU 环境配置脚本 (`setup_gpu_env.sh`)
 - [x] Submodule 引用 (`references/mamba3-pytorch`)
+- [x] 性能优化: Triton kernel 修复 + CUDA Graph 集成
+- [x] 完整 benchmark suite + 结果
 
-### 5.2 待完成 — 性能优化
+### 5.2 待完成 — 进一步优化 (可选)
 
-- [ ] Block size tuning (D tiling for D=64/128/256)
-- [ ] Dtype optimization (fp16/bf16 中间变量)
+- [ ] dtype optimization (fp16/bf16 中间变量)
 - [ ] Register pressure analysis via `triton.testing`
 - [ ] Cache hint optimization
 - [ ] `torch.compile` 兼容性测试
+- [ ] 更大模型 (d_model=2048) 的 benchmark
+- [ ] Prefill kernel fusion
 
-### 5.3 待完成 — 完整 Benchmark + 文档
+### 5.3 实际达成
 
-- [ ] 全量 benchmark suite (多种 batch/seq_len/SISO vs MIMO)
-- [ ] 性能分析报告
-- [ ] README 更新 (安装/使用/结果)
-- [ ] End-to-end demo
-
-### 5.4 成功标准
-
-| 指标 | MVP 目标 | 优秀 |
-|------|---------|------|
+| 指标 | MVP 目标 | 实际结果 |
+|------|---------|---------|
 | **正确性** | vs PyTorch atol < 1e-2 | atol < 1e-3 |
-| **单步延迟 (batch=1)** | 比 Python 快 1.5x | 比 Python 快 2x+ |
-| **端到端 decode (seq=1K)** | 比 Python 快 1.3x | 比 Python 快 1.5x+ |
+| **单步延迟 (batch=1)** | 比 Python 快 1.5x | Triton 1.25x, CUDA Graph **5.86x** |
+| **端到端 decode (seq=1K)** | 比 Python 快 1.3x | Triton 1.31x, CUDA Graph **8.00x** |
 
 ---
 

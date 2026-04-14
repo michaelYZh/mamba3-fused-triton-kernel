@@ -38,18 +38,17 @@ def benchmark_single_step(fn, args, n_iters=100):
     return avg_ms
 
 
-def benchmark_autoregressive(step_fn, model, state, seq_len, n_iters=10):
+def benchmark_autoregressive(decoder, model, batch_size, seq_len, n_iters=10):
     """Benchmark full autoregressive decoding for seq_len tokens."""
     times = []
-    batch_size = state["ssm_state"].shape[0]
     for _ in range(n_iters):
         # Reset state
-        state = model.allocate_inference_cache(batch_size)
+        state = decoder.init_state(batch_size, device="cuda")
         u = torch.randn(batch_size, model.d_model, device="cuda")
         torch.cuda.synchronize()
         start = time.perf_counter()
         for t in range(seq_len):
-            _, state = step_fn(u, state)
+            _, state = decoder.step(u, state)
         torch.cuda.synchronize()
         end = time.perf_counter()
         times.append((end - start) * 1000)
@@ -114,9 +113,11 @@ def run_benchmark_suite(
 
         decoder_pytorch = Mamba3Decoder(model, use_triton=False)
         decoder_triton = Mamba3Decoder(model, use_triton=True)
+        decoder_graph = Mamba3Decoder(model, use_triton=True, use_cuda_graph=True)
 
         state_pt = decoder_pytorch.init_state(bs, device=device)
         state_tri = decoder_triton.init_state(bs, device=device)
+        state_graph = decoder_graph.init_state(bs, device=device)
 
         u = torch.randn(bs, d_model, device=device)
 
@@ -128,36 +129,64 @@ def run_benchmark_suite(
         warmup(decoder_triton.step, (u, state_tri), n_warmup=5)
         ms_tri = benchmark_single_step(decoder_triton.step, (u, state_tri), n_iters=50)
 
-        speedup = ms_pt / ms_tri if ms_tri > 0 else float('inf')
+        # CUDA Graph
+        decoder_graph.warmup_cuda_graph(state_graph, n_warmup=10)
+        ms_graph = benchmark_single_step(decoder_graph.step, (u, state_graph), n_iters=50)
+
+        speedup_tri = ms_pt / ms_tri if ms_tri > 0 else float('inf')
+        speedup_graph = ms_pt / ms_graph if ms_graph > 0 else float('inf')
 
         results["single_step"][str(bs)] = {
             "pytorch_ms": ms_pt,
             "triton_ms": ms_tri,
-            "speedup": speedup,
+            "cuda_graph_ms": ms_graph,
+            "speedup_triton": speedup_tri,
+            "speedup_cuda_graph": speedup_graph,
         }
-        print(f"  PyTorch: {ms_pt:.4f} ms | Triton: {ms_tri:.4f} ms | Speedup: {speedup:.2f}x")
+        print(f"  PyTorch: {ms_pt:.4f} ms | Triton: {ms_tri:.4f} ms ({speedup_tri:.2f}x) | "
+              f"CUDA Graph: {ms_graph:.4f} ms ({speedup_graph:.2f}x)")
 
         # Autoregressive benchmark (smaller n_iters due to longer runtime)
         try:
             ar_pt = benchmark_autoregressive(
-                decoder_pytorch.step, model,
-                decoder_pytorch.init_state(bs, device=device),
+                decoder_pytorch, model, bs,
                 seq_len=seq_len, n_iters=3,
             )
             ar_tri = benchmark_autoregressive(
-                decoder_triton.step, model,
-                decoder_triton.init_state(bs, device=device),
+                decoder_triton, model, bs,
                 seq_len=seq_len, n_iters=3,
             )
-            ar_speedup = ar_pt["total_ms"] / ar_tri["total_ms"] if ar_tri["total_ms"] > 0 else float('inf')
+            # CUDA Graph AR
+            ar_graph_times = []
+            for _ in range(3):
+                sg = decoder_graph.init_state(bs, device=device)
+                decoder_graph.warmup_cuda_graph(sg, n_warmup=3)
+                ug = torch.randn(bs, d_model, device=device)
+                torch.cuda.synchronize()
+                start = time.perf_counter()
+                for t in range(seq_len):
+                    decoder_graph.step(ug, sg)
+                torch.cuda.synchronize()
+                ar_graph_times.append((time.perf_counter() - start) * 1000)
+            ar_graph = {
+                "total_ms": sum(ar_graph_times) / len(ar_graph_times),
+                "per_token_ms": sum(ar_graph_times) / len(ar_graph_times) / seq_len,
+                "tokens_per_sec": seq_len / (sum(ar_graph_times) / len(ar_graph_times) / 1000),
+            }
+
+            ar_speedup_tri = ar_pt["total_ms"] / ar_tri["total_ms"] if ar_tri["total_ms"] > 0 else float('inf')
+            ar_speedup_graph = ar_pt["total_ms"] / ar_graph["total_ms"] if ar_graph["total_ms"] > 0 else float('inf')
 
             results["autoregressive"][str(bs)] = {
                 "pytorch": ar_pt,
                 "triton": ar_tri,
-                "speedup": ar_speedup,
+                "cuda_graph": ar_graph,
+                "speedup_triton": ar_speedup_tri,
+                "speedup_cuda_graph": ar_speedup_graph,
             }
             print(f"  AR ({seq_len} tok): PT {ar_pt['per_token_ms']:.4f} ms/tok | "
-                  f"Tri {ar_tri['per_token_ms']:.4f} ms/tok | Speedup: {ar_speedup:.2f}x")
+                  f"Tri {ar_tri['per_token_ms']:.4f} ms/tok ({ar_speedup_tri:.2f}x) | "
+                  f"Graph {ar_graph['per_token_ms']:.4f} ms/tok ({ar_speedup_graph:.2f}x)")
         except Exception as e:
             print(f"  AR benchmark failed: {e}")
 

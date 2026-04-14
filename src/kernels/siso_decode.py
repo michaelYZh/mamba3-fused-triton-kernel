@@ -5,8 +5,8 @@ Fuses the entire single-step SISO decode into one kernel launch:
   [Load state] → [Compute dA=exp(A*dt)] → [Compute Bx_curr = B*x] →
   [Trapezoidal blend] → [State update] → [Output y = C*h + D*x] → [Write-back]
 
-Each program handles one (batch, head) pair, iterating over P and D dimensions
-with tiling.
+Each program handles one (batch, head) pair, iterating over P and D dimensions.
+P is iterated inside the kernel as a loop; D is tiled with BLOCK_D.
 
 State shapes (SISO):
   ssm_state:  (B, H, P, D)  — full outer-product state
@@ -58,7 +58,6 @@ def _siso_decode_kernel(
     stride_D_h,
 
     # Block sizes
-    BLOCK_P: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
     """SISO decode kernel: one program per (batch, head) pair."""
@@ -74,26 +73,11 @@ def _siso_decode_kernel(
 
     decay = tl.exp(adt_val)  # exp(A*dt), scalar
 
-    # ── Tile over P dimension ────────────────────────────────────────────
-    pid_p = tl.program_id(1)
-    p_offsets = pid_p * BLOCK_P + tl.arange(0, BLOCK_P)
-    p_mask = p_offsets < P
-
-    # Load x[b, h, p] — (BLOCK_P,)
-    x_vals = tl.load(
-        x_ptr + b * stride_x_b + h * stride_x_h + p_offsets * stride_x_p,
-        mask=p_mask, other=0.0,
-    )
-
-    # Load D_skip[h] — scalar (already loaded above)
-    # y_skip = D * x — (BLOCK_P,)
-    y_skip = d_skip_val * x_vals
-
-    # ── Tile over D dimension ────────────────────────────────────────────
+    # ── D-tile offsets ──────────────────────────────────────────────────
     d_offsets = tl.arange(0, BLOCK_D)
     d_mask = d_offsets < D
 
-    # Load B_proj[b, h, d] and C_proj[b, h, d] — (BLOCK_D,)
+    # Load B_proj[b, h, d] and C_proj[b, h, d] — (BLOCK_D,) once, reuse
     B_vals = tl.load(
         B_proj_ptr + b * stride_B_b + h * stride_B_h + d_offsets * stride_B_d,
         mask=d_mask, other=0.0,
@@ -103,20 +87,17 @@ def _siso_decode_kernel(
         mask=d_mask, other=0.0,
     )
 
-    # ── Iterate over P×D tiles ──────────────────────────────────────────
-    # For each p in this P-tile, iterate over D-tiles
-    # h_state is (P, D), we load/update per (p, d) tile
-    y_accum = tl.zeros([BLOCK_P], dtype=tl.float32)
+    # Pre-compute constants
+    one_minus_trap = 1.0 - trap_val
+    half_trap = trap_val * 0.5
 
-    for p_idx in range(BLOCK_P):
-        p = pid_p * BLOCK_P + p_idx
-        if p >= P:
-            break
-
-        x_p = x_vals[p_idx]  # scalar
+    # ── Iterate over P dimension ────────────────────────────────────────
+    for p_idx in range(P):
+        # Load x[b, h, p] — scalar
+        x_p = tl.load(x_ptr + b * stride_x_b + h * stride_x_h + p_idx * stride_x_p)
 
         # Load h[b, h, p, d] and bx_prev[b, h, p, d] — (BLOCK_D,)
-        h_base = b * stride_h_b + h * stride_h_h + p * stride_h_p
+        h_base = b * stride_h_b + h * stride_h_h + p_idx * stride_h_p
         h_vals = tl.load(
             h_ptr + h_base + d_offsets * stride_h_d,
             mask=d_mask, other=0.0,
@@ -130,15 +111,16 @@ def _siso_decode_kernel(
         bx_curr = x_p * B_vals
 
         # Trapezoidal blend: (1-trap)*curr + trap*0.5*(curr+prev)
-        bx_blended = (1.0 - trap_val) * bx_curr + trap_val * 0.5 * (bx_curr + bx_prev_vals)
+        bx_blended = one_minus_trap * bx_curr + half_trap * (bx_curr + bx_prev_vals)
 
         # State update: h = decay * h + dt * bx_blended
         h_new = decay * h_vals + dt_val * bx_blended
 
-        # Output contribution: y += C[d] * h[d] summed over d
-        y_accum_p = tl.sum(C_vals * h_new, axis=0)  # scalar
-        if p_idx < BLOCK_P:
-            y_accum[p_idx] = y_accum_p
+        # Output contribution: y = C[d] * h[d] summed over d + D*x
+        y_p = tl.sum(C_vals * h_new, axis=0) + d_skip_val * x_p
+
+        # Write y[b, h, p]
+        tl.store(y_ptr + b * stride_y_b + h * stride_y_h + p_idx * stride_y_p, y_p)
 
         # Write back h and bx_prev
         tl.store(
@@ -149,13 +131,6 @@ def _siso_decode_kernel(
             bx_prev_ptr + h_base + d_offsets * stride_h_d,
             bx_curr, mask=d_mask,
         )
-
-    # Add skip connection and write y
-    y_vals = y_accum + y_skip
-    tl.store(
-        y_ptr + b * stride_y_b + h * stride_y_h + p_offsets * stride_y_p,
-        y_vals, mask=p_mask,
-    )
 
 
 def mamba3_siso_decode_triton(
@@ -185,12 +160,13 @@ def mamba3_siso_decode_triton(
 
     y = torch.empty_like(x)
 
-    # Block sizes
-    BLOCK_P = min(P_dim, 64)
     BLOCK_D = triton.next_power_of_2(D_dim)
 
-    # Grid: one program per (batch, head), plus tiling over P
-    grid = (B_dim * H_dim, triton.cdiv(P_dim, BLOCK_P))
+    # Choose num_warps based on problem size
+    num_warps = 4 if D_dim <= 64 else 8
+
+    # Grid: one program per (batch, head)
+    grid = (B_dim * H_dim,)
 
     _siso_decode_kernel[grid](
         x, h, bx_prev, y,
@@ -204,8 +180,8 @@ def mamba3_siso_decode_triton(
         C_proj.stride(0), C_proj.stride(1), C_proj.stride(2),
         ADT.stride(0), ADT.stride(1),
         D_skip.stride(0),
-        BLOCK_P=BLOCK_P,
         BLOCK_D=BLOCK_D,
+        num_warps=num_warps,
     )
 
     return y, h, bx_prev

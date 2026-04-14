@@ -131,7 +131,7 @@ class TestRoPEAngleAccumulation:
         from src.kernels.utils import apply_rope
 
         torch.manual_seed(42)
-        x = torch.randn(2, 3, 4, 8, device="cuda")  # (B, H, R, 2*num_angles)
+        x = torch.randn(2, 3, 8, device="cuda")  # (B, H, 2*num_angles)
         angles = torch.randn(2, 3, 4, device="cuda")  # (B, H, num_angles)
 
         result_batch = apply_rope(x, angles)
@@ -157,15 +157,15 @@ class TestMultiStepConsistency:
         bx_prev = torch.zeros(B, H, P, D, device=device)
 
         A_log = -torch.rand(H, device=device) * 2
-        B_p = torch.randn(B, H, D, device=device).expand(4, -1, -1)  # same across steps
-        C_p = torch.randn(B, H, D, device=device).expand(4, -1, -1)
+        B_p = torch.randn(4, B, H, D, device=device)  # (T, B, H, D)
+        C_p = torch.randn(4, B, H, D, device=device)
         D_skip = torch.randn(H, device=device)
-        dt = (torch.softmax(torch.randn(4, B, H, device=device), dim=-1) + 0.01)[:, 0]
-        trap = torch.sigmoid(torch.randn(4, B, H, device=device))[:, 0]
+        dt = (torch.softmax(torch.randn(4, B, H, device=device), dim=-1) + 0.01)[:, 0]  # (4, H)
+        trap = torch.sigmoid(torch.randn(4, B, H, device=device))[:, 0]  # (4, H)
 
         ys = []
         for t in range(4):
-            ADT = A_log.unsqueeze(0) * dt[t]
+            ADT = A_log.unsqueeze(0) * dt[t]  # (B, H)
             x_t = torch.randn(B, H, P, device=device)
             y, h, bx_prev = mamba3_siso_decode_ref(
                 x_t, B_p[t], C_p[t], ADT, dt[t], trap[t], D_skip, h, bx_prev

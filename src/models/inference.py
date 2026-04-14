@@ -4,6 +4,7 @@ Mamba-3 inference interface with Triton kernel integration.
 Provides a high-level Mamba3Decoder that:
   - Manages inference state (angle, ssm_state, bx_prev) across decoding steps
   - Supports both PyTorch reference and Triton fused kernel backends
+  - Optional CUDA Graph support for minimal launch overhead
   - Handles the full projection pipeline (in_proj → split → norm → RoPE → decode → out_proj)
 """
 
@@ -18,7 +19,8 @@ class Mamba3Decoder:
     """High-level Mamba-3 decoder for autoregressive inference.
 
     Wraps a trained Mamba3 module and provides a simple step() interface
-    that manages state automatically. Supports both Triton and PyTorch backends.
+    that manages state automatically. Supports both Triton and PyTorch backends,
+    with optional CUDA Graph acceleration.
 
     Usage:
         model = Mamba3(d_model=768, ...)
@@ -26,13 +28,28 @@ class Mamba3Decoder:
         state = decoder.init_state(batch_size=1)
         for token_emb in token_sequence:
             output, state = decoder.step(token_emb, state)
+
+    CUDA Graph usage (for fixed-shape autoregressive decoding):
+        decoder = Mamba3Decoder(model, use_triton=True, use_cuda_graph=True)
+        state = decoder.init_state(batch_size=1)
+        decoder.warmup_cuda_graph(state)  # warmup + capture
+        for token_emb in token_sequence:
+            output, state = decoder.step(token_emb, state)
     """
 
-    def __init__(self, model: Mamba3, use_triton: bool = True):
+    def __init__(self, model: Mamba3, use_triton: bool = True, use_cuda_graph: bool = False):
         self.model = model
         self.use_triton = use_triton and torch.cuda.is_available()
+        self.use_cuda_graph = use_cuda_graph and self.use_triton
+        self._cuda_graph = None
+        self._graph_input = None
+        self._graph_output = None
+        self._graph_state = None
+
         if use_triton and not torch.cuda.is_available():
             print("Warning: CUDA not available, falling back to PyTorch backend")
+        if use_cuda_graph and not self.use_triton:
+            print("Warning: CUDA Graph requires Triton backend, disabling")
 
     def init_state(self, batch_size: int, device=None, dtype=None):
         """Initialize inference state.
@@ -49,6 +66,39 @@ class Mamba3Decoder:
             "bx_prev": bx_prev,
         }
 
+    def warmup_cuda_graph(self, state: dict, n_warmup: int = 10):
+        """Warm up and capture CUDA Graph for the step function.
+
+        Must be called before the first step() when use_cuda_graph=True.
+        The state dict is captured in the graph and will be updated in-place.
+
+        Args:
+            state: initial state dict from init_state()
+            n_warmup: number of warmup iterations before capturing
+        """
+        if not self.use_cuda_graph:
+            return
+
+        batch_size = state["ssm_state"].shape[0]
+        device = state["ssm_state"].device
+
+        # Create static input
+        self._graph_input = torch.zeros(batch_size, self.model.d_model, device=device)
+
+        # Warmup runs
+        for _ in range(n_warmup):
+            self._step_triton(self._graph_input, state)
+        torch.cuda.synchronize()
+
+        # Capture CUDA Graph
+        self._cuda_graph = torch.cuda.CUDAGraph()
+        self._graph_state = state
+
+        with torch.cuda.graph(self._cuda_graph):
+            self._graph_output, self._graph_state = self._step_triton(
+                self._graph_input, self._graph_state
+            )
+
     def step(self, u: torch.Tensor, state: dict) -> tuple:
         """Run a single decoding step.
 
@@ -60,7 +110,12 @@ class Mamba3Decoder:
             output: (batch, d_model)
             state:  updated state dict
         """
-        if self.use_triton:
+        if self.use_cuda_graph and self._cuda_graph is not None:
+            # Copy input to static buffer and replay graph
+            self._graph_input.copy_(u)
+            self._cuda_graph.replay()
+            return self._graph_output, self._graph_state
+        elif self.use_triton:
             return self._step_triton(u, state)
         else:
             return self._step_pytorch(u, state)
