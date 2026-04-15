@@ -161,9 +161,7 @@ python benchmarks/profile_step.py --mode mimo --save-trace
 | 32 | 1.37 ms | 0.65 ms (2.1x) | 0.97 ms | 0.91 ms | 0.15 ms (9.3x) | 0.19 ms (7.3x) | **0.11 ms** (12.8x) | **12.8x** |
 | 128 | 1.48 ms | 0.65 ms (2.3x) | 1.02 ms | 0.98 ms | 0.19 ms (7.8x) | 0.28 ms (5.3x) | **0.28 ms** (5.2x) | **7.8x** |
 
-> **Note**: At BS=1 MIMO, the full fused kernel (without CUDA Graph) achieves the best single-step latency (0.18 ms, 6.8x). With CUDA Graph, fused+Graph excels at BS≥32 (9.3-12.8x). The full fused + CUDA Graph combination shows diminishing returns at BS=1 because the full fused kernel is already very fast and CUDA Graph's fixed replay overhead becomes non-negligible relative to kernel execution time.
-
-> **Note**: `torch.compile + CUDA Graph` failed (CUDA graph capture error) in all configurations, so it is excluded. At BS=1 MIMO, the full fused kernel without CUDA Graph achieves the best single-step latency because CUDA Graph's replay overhead is non-negligible for the very fast kernel.
+> **Note**: At BS=1 MIMO, the full fused kernel (without CUDA Graph) achieves the best single-step latency (0.18 ms, 6.8x) — CUDA Graph's replay overhead is non-negligible for the very fast kernel. With CUDA Graph, fused+Graph excels at BS≥32 (9.3-12.8x). `torch.compile + CUDA Graph` failed (CUDA graph capture error) in all configurations, so it is excluded.
 
 ### 8-Way Ablation: Larger Model (d_model=512)
 
@@ -198,7 +196,7 @@ The critical insight is that **fusion scope** — not just CUDA Graph — determ
 
 2. **Full-step fusion**: ~6x speedup. ALL decode step computation is in one Triton kernel — split, rearrange, softplus, sigmoid, RMSNorm, RoPE, SSM recurrence, and silu gate are fused into a single kernel launch. Only `in_proj` and `out_proj` (memory-bound GEMMs) remain separate.
 
-3. **Full-step fusion + CUDA Graph**: Up to **19.2x** speedup (MIMO R=4, BS=1). Adds CUDA Graph to eliminate CPU launch overhead, giving the best possible performance.
+3. **Full-step fusion + CUDA Graph**: Up to **14.0x** speedup (SISO BS=1). Adds CUDA Graph to eliminate CPU launch overhead, giving the best possible performance.
 
 The full fused kernel alone (without CUDA Graph) is already faster than partial fusion + CUDA Graph, proving that **maximizing fusion scope is more important than CUDA Graph for this workload**.
 

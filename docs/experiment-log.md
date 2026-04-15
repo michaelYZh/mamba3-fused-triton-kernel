@@ -159,7 +159,7 @@ All MVP milestones completed. See:
 
 新建 `test_accuracy_drift.py`，1000 步 decode 比较 Triton vs PyTorch 的累积误差。
 
-**结果**：所有后端在 1000 步后累积误差 < 1.3e-4，数值稳定性良好。
+**结果**：所有后端在 1000 步后累积误差 < 1.3e-4 (d_model=256)，< 2.3e-4 (d_model=512)，数值稳定性良好。
 
 ---
 
@@ -219,7 +219,7 @@ All MVP milestones completed. See:
 3. **SISO full fused 仍然高效**：SISO 没有寄存器溢出问题，因为不需要同时持有 R=4 组 B/C/RoPE
 
 4. **最佳配置取决于模型大小**：
-   - d_model=256: Full+Graph 最优 (14-19x)
+   - d_model=256: Full+Graph 最优 (10-14x)
    - d_model=512 MIMO: Fused+Graph 最优 (4-8x)
    - d_model=512 SISO: Full+Graph 仍然最优 (7-12x)
 
