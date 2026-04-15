@@ -95,6 +95,8 @@ All MVP milestones completed. See:
 | `mimo_r4_extended_20260415_053417.json` | d_model=256, CUDA Event | MIMO 8-way (修正后) ✅ |
 | `accuracy_drift_siso_r4_20260415_053438.json` | d_model=512 | SISO 1000-step drift (新) ✅ |
 | `accuracy_drift_mimo_r4_20260415_053449.json` | d_model=512 | MIMO 1000-step drift (新) ✅ |
+| `siso_r4_extended_20260415_061338.json` | d_model=512, CUDA Event | SISO 8-way (修正后) ✅ |
+| `mimo_r4_extended_20260415_061428.json` | d_model=512, CUDA Event | MIMO 8-way (修正后) ✅ |
 
 ---
 
@@ -171,9 +173,9 @@ All MVP milestones completed. See:
 
 | BS | PyTorch | compile | Triton | Fused | Fused+Graph | **Full Fused** | **Full+Graph** | Best Speedup |
 |----|---------|---------|--------|-------|-------------|----------------|----------------|--------------|
-| 1 | 1.29 ms | 0.44 ms (2.9x) | 0.95 ms | 0.92 ms | 0.24 ms | 0.21 ms (6.1x) | **0.15 ms** | **8.4x** |
-| 8 | 1.24 ms | 0.49 ms (2.5x) | 0.95 ms | 0.93 ms | 0.26 ms | 0.21 ms (5.9x) | **0.18 ms** | **7.0x** |
-| 32 | 1.71 ms | 0.88 ms (1.9x) | 0.98 ms | 0.95 ms | 0.22 ms | 0.25 ms (6.9x) | **0.25 ms** | **7.7x** |
+| 1 | 1.28 ms | 0.43 ms (3.0x) | 0.96 ms | 0.90 ms | 0.33 ms (3.9x) | 0.22 ms (6.0x) | **0.21 ms** | **6.0x** |
+| 8 | 1.21 ms | 0.68 ms (1.8x) | 0.95 ms | 0.92 ms | **0.14 ms** (8.6x) | 0.21 ms (5.8x) | 0.24 ms (4.9x) | **8.6x** |
+| 32 | 1.73 ms | 0.84 ms (2.1x) | 0.99 ms | 0.97 ms | **0.22 ms** (7.8x) | 0.25 ms (6.9x) | 0.25 ms (6.9x) | **7.8x** |
 
 > BS=128 OOM (SISO state = B×H×P×D = 128×16×32×128 = 8M floats × 3 states)
 
@@ -181,10 +183,10 @@ All MVP milestones completed. See:
 
 | BS | PyTorch | compile | Triton | Fused | Fused+Graph | **Full Fused** | **Full+Graph** | Best Speedup |
 |----|---------|---------|--------|-------|-------------|----------------|----------------|--------------|
-| 1 | 1.27 ms | 0.54 ms (2.3x) | 0.95 ms | 0.92 ms | **0.32 ms** (4.0x) | 0.35 ms (3.6x) | 0.35 ms (3.6x) | **4.0x** |
-| 8 | 1.47 ms | 0.67 ms (2.2x) | 0.96 ms | 0.94 ms | **0.25 ms** (5.8x) | 0.35 ms (4.2x) | 0.36 ms (4.1x) | **5.8x** |
-| 32 | 1.45 ms | 0.60 ms (2.4x) | 0.99 ms | 0.96 ms | **0.18 ms** (8.1x) | 0.53 ms (2.8x) | 0.53 ms (2.8x) | **8.1x** |
-| 128 | 1.53 ms | 0.74 ms (2.1x) | 0.98 ms | 0.96 ms | **0.34 ms** (4.4x) | 1.84 ms (0.8x) ⚠️ | 1.84 ms (0.8x) ⚠️ | **4.4x** |
+| 1 | 1.26 ms | 0.54 ms (2.3x) | 0.95 ms | 0.92 ms | **0.23 ms** (5.4x) | 0.27 ms (4.7x) | 0.27 ms (4.6x) | **5.4x** |
+| 8 | 1.49 ms | 0.69 ms (2.2x) | 0.95 ms | 0.93 ms | **0.25 ms** (5.9x) | 0.35 ms (4.2x) | 0.36 ms (4.2x) | **5.9x** |
+| 32 | 1.50 ms | 0.62 ms (2.4x) | 0.99 ms | 0.97 ms | **0.18 ms** (8.3x) | 0.53 ms (2.8x) | 0.53 ms (2.8x) | **8.3x** |
+| 128 | 1.58 ms | 0.78 ms (2.0x) | 0.98 ms | 0.95 ms | **0.34 ms** (4.6x) | 1.84 ms (0.9x) ⚠️ | 1.84 ms (0.9x) ⚠️ | **4.6x** |
 
 ### Autoregressive Speedup (d_model=512, 256 tokens)
 
@@ -192,36 +194,64 @@ All MVP milestones completed. See:
 
 | BS | PyTorch | Triton | Fused | Fused+Graph | Full Fused | Full+Graph |
 |----|---------|--------|-------|-------------|------------|------------|
-| 1 | 1.10 ms/tok | 1.14x | 1.19x | 4.94x | 5.30x | **9.93x** |
-| 8 | 1.12 ms/tok | 1.18x | 1.21x | 5.97x | 5.47x | **11.67x** |
-| 32 | 1.33 ms/tok | 1.37x | 1.40x | 5.66x | 5.40x | **5.32x** |
+| 1 | 1.09 ms/tok | 1.17x | 1.20x | 4.71x | 5.15x | **9.12x** |
+| 8 | 1.32 ms/tok | 1.37x | 1.42x | 7.14x | 6.42x | **13.61x** |
+| 32 | 1.34 ms/tok | 1.39x | 1.44x | 5.95x | 5.41x | **5.35x** |
 
 #### MIMO
 
 | BS | PyTorch | Triton | Fused | Fused+Graph | Full Fused | Full+Graph |
 |----|---------|--------|-------|-------------|------------|------------|
-| 1 | 1.17 ms/tok | 1.20x | 1.29x | **9.32x** | 6.06x | 7.85x |
-| 8 | 1.33 ms/tok | 1.37x | 1.45x | **5.94x** | 5.15x | 6.82x |
-| 32 | 1.37 ms/tok | 1.42x | 1.47x | **6.10x** | 2.39x | 2.60x |
-| 128 | 1.39 ms/tok | 1.43x | 1.49x | **4.03x** | 0.76x ⚠️ | 0.75x ⚠️ |
+| 1 | 1.17 ms/tok | 1.26x | 1.30x | **5.13x** | 4.97x | 7.90x |
+| 8 | 1.31 ms/tok | 1.37x | 1.42x | **5.62x** | 4.29x | 6.75x |
+| 32 | 1.39 ms/tok | 1.44x | 1.49x | **6.79x** | 2.65x | 2.65x |
+| 128 | 1.40 ms/tok | 1.45x | 1.50x | **4.09x** | 0.76x ⚠️ | 0.76x ⚠️ |
 
 ### 关键发现
 
 1. **Full fused kernel 在大模型 (d_model=512) 大 batch (BS≥32 MIMO) 下性能退化**：
-   - MIMO BS=128: full fused 仅 0.83x (比 eager 还慢！)
+   - MIMO BS=128: full fused 仅 0.86x (比 eager 还慢！)
    - 原因：d_model=512 → d_inner=1024 → nheads=32, d_state=128, R=4 → kernel 内需要加载 4×(B_raw+C_raw) 各 128 元素 + 4×(B_bias+C_bias) + 4×(B_exp+C_exp) + mimo_x/mimo_o → **寄存器溢出 (register spillover)**
 
-2. **Fused+Graph 在大模型下反而更优**：
-   - MIMO BS=1: fused+Graph 4.0x > full+Graph 3.6x
-   - MIMO BS=32: fused+Graph 8.1x >> full+Graph 2.8x
+2. **Fused+Graph 在大模型 MIMO 下是最优后端**：
+   - MIMO 所有 batch: fused+Graph 均为最优 (5.4-8.3x)
+   - MIMO BS=1: fused+Graph 5.4x > full fused 4.7x > full+Graph 4.6x
    - Fused kernel 只融合 SSM+silu gate，寄存器占用小，不会溢出
 
 3. **SISO full fused 仍然高效**：SISO 没有寄存器溢出问题，因为不需要同时持有 R=4 组 B/C/RoPE
 
 4. **最佳配置取决于模型大小**：
    - d_model=256: Full+Graph 最优 (10-14x)
-   - d_model=512 MIMO: Fused+Graph 最优 (4-8x)
-   - d_model=512 SISO: Full+Graph 仍然最优 (7-12x)
+   - d_model=512 MIMO: Fused+Graph 最优 (5-8x)
+   - d_model=512 SISO: Full+Graph 最优 (6.0x BS=1), Fused+Graph 最优 (7.8-8.6x BS≥8)
+
+### d_model=512 Percentile 数据 (CUDA Event, 200 iterations)
+
+#### SISO P50 / P99 (ms)
+
+| Backend | BS=1 | BS=8 | BS=32 |
+|---------|------|------|-------|
+| PyTorch eager | 1.090 / 1.786 | 0.291 / 1.615 | 1.936 / 2.097 |
+| torch.compile | 0.067 / 0.457 | 0.397 / 0.453 | 0.414 / 0.460 |
+| Triton basic | 0.635 / 0.658 | 0.976 / 1.397 | 1.012 / 1.033 |
+| Triton fused | 0.927 / 1.029 | 0.948 / 1.040 | 0.983 / 1.020 |
+| Triton fused+Graph | 0.142 / 0.149 | 0.165 / 0.170 | 0.244 / 0.322 |
+| Triton full fused | 0.239 / 0.349 | 0.238 / 0.264 | 0.392 / 0.407 |
+| **Triton full+Graph** | **0.103 / 0.111** | **0.114 / 0.122** | **0.266 / 0.274** |
+
+#### MIMO P50 / P99 (ms)
+
+| Backend | BS=1 | BS=8 | BS=32 | BS=128 |
+|---------|------|------|-------|--------|
+| PyTorch eager | 1.310 / 1.563 | 1.557 / 6.566 | 1.617 / 2.898 | 1.674 / 3.208 |
+| torch.compile | 0.499 / 0.551 | 0.535 / 0.588 | 0.545 / 0.588 | 0.562 / 1.226 |
+| Triton basic | 0.976 / 1.079 | 0.981 / 1.017 | 1.002 / 1.025 | 1.000 / 1.013 |
+| Triton fused | 0.944 / 1.012 | 0.950 / 0.976 | 0.966 / 1.004 | 0.969 / 0.999 |
+| **Triton fused+Graph** | **0.241 / 0.248** | **0.261 / 0.268** | **0.280 / 0.286** | **0.362 / 0.369** |
+| Triton full fused | 0.376 / 0.387 | 0.470 / 0.480 | 0.665 / 0.941 | 1.947 / 1.965 |
+| Triton full+Graph | 0.284 / 0.290 | 0.310 / 0.314 | 0.543 / 0.549 | 1.859 / 1.865 |
+
+> **关键发现**: d_model=512 MIMO 中 fused+Graph 的 P50 在所有 batch size 下都是最低的。Full fused kernel 因寄存器溢出，P50 反而比 fused+Graph 高。
 
 ---
 

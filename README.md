@@ -171,9 +171,9 @@ python benchmarks/profile_step.py --mode mimo --save-trace
 
 | Batch | PyTorch | compile | Triton | Fused | Fused+Graph | **Full Fused** | **Full+Graph** | Best Speedup |
 |-------|---------|---------|--------|-------|-------------|----------------|----------------|--------------|
-| 1 | 1.29 ms | 0.44 ms (2.9x) | 0.95 ms | 0.92 ms | 0.24 ms | 0.21 ms (6.1x) | **0.15 ms** | **8.4x** |
-| 8 | 1.24 ms | 0.49 ms (2.5x) | 0.95 ms | 0.93 ms | 0.26 ms | 0.21 ms (5.9x) | **0.18 ms** | **7.0x** |
-| 32 | 1.71 ms | 0.88 ms (1.9x) | 0.98 ms | 0.95 ms | 0.22 ms | 0.25 ms (6.9x) | **0.25 ms** | **7.7x** |
+| 1 | 1.28 ms | 0.43 ms (3.0x) | 0.96 ms | 0.90 ms | 0.33 ms (3.9x) | 0.22 ms (6.0x) | **0.21 ms** | **6.0x** |
+| 8 | 1.21 ms | 0.68 ms (1.8x) | 0.95 ms | 0.92 ms | **0.14 ms** (8.6x) | 0.21 ms (5.8x) | 0.24 ms (4.9x) | **8.6x** |
+| 32 | 1.73 ms | 0.84 ms (2.1x) | 0.99 ms | 0.97 ms | **0.22 ms** (7.8x) | 0.25 ms (6.9x) | 0.25 ms (6.9x) | **7.8x** |
 
 > BS=128 OOM for SISO (state = B×H×P×D = 128×16×32×128 = 32MB per state)
 
@@ -181,12 +181,12 @@ python benchmarks/profile_step.py --mode mimo --save-trace
 
 | Batch | PyTorch | compile | Triton | Fused | Fused+Graph | **Full Fused** | **Full+Graph** | Best Speedup |
 |-------|---------|---------|--------|-------|-------------|----------------|----------------|--------------|
-| 1 | 1.27 ms | 0.54 ms (2.3x) | 0.95 ms | 0.92 ms | **0.32 ms** (4.0x) | 0.35 ms (3.6x) | 0.35 ms (3.6x) | **4.0x** |
-| 8 | 1.47 ms | 0.67 ms (2.2x) | 0.96 ms | 0.94 ms | **0.25 ms** (5.8x) | 0.35 ms (4.2x) | 0.36 ms (4.1x) | **5.8x** |
-| 32 | 1.45 ms | 0.60 ms (2.4x) | 0.99 ms | 0.96 ms | **0.18 ms** (8.1x) | 0.53 ms (2.8x) | 0.53 ms (2.8x) | **8.1x** |
-| 128 | 1.53 ms | 0.74 ms (2.1x) | 0.98 ms | 0.96 ms | **0.34 ms** (4.4x) | 1.84 ms ⚠️ | 1.84 ms ⚠️ | **4.4x** |
+| 1 | 1.26 ms | 0.54 ms (2.3x) | 0.95 ms | 0.92 ms | **0.23 ms** (5.4x) | 0.27 ms (4.7x) | 0.27 ms (4.6x) | **5.4x** |
+| 8 | 1.49 ms | 0.69 ms (2.2x) | 0.95 ms | 0.93 ms | 0.25 ms (5.9x) | 0.35 ms (4.2x) | 0.36 ms (4.2x) | **5.9x** |
+| 32 | 1.50 ms | 0.62 ms (2.4x) | 0.99 ms | 0.97 ms | **0.18 ms** (8.3x) | 0.53 ms (2.8x) | 0.53 ms (2.8x) | **8.3x** |
+| 128 | 1.58 ms | 0.78 ms (2.0x) | 0.98 ms | 0.95 ms | **0.34 ms** (4.6x) | 1.84 ms ⚠️ | 1.84 ms ⚠️ | **4.6x** |
 
-> ⚠️ Full fused kernel at BS=128 MIMO is **slower** than eager (0.83x) due to register spillover. The fused+Graph backend is the optimal choice for large-model MIMO.
+> ⚠️ Full fused kernel at BS=128 MIMO is **slower** than eager (0.86x) due to register spillover. The fused+Graph backend is the optimal choice for large-model MIMO.
 
 ### Why Fusion Scope Matters
 
@@ -200,15 +200,59 @@ The critical insight is that **fusion scope** — not just CUDA Graph — determ
 
 The full fused kernel alone (without CUDA Graph) is already faster than partial fusion + CUDA Graph, proving that **maximizing fusion scope is more important than CUDA Graph for this workload**.
 
-### Latency Tail: P99/P50 Ratios
+### Latency Tail: P50 and P99 (CUDA Event Timing)
 
-Triton kernels deliver significantly more stable latency than PyTorch eager (measured with CUDA Events for accurate GPU-side timing):
+All percentile measurements use CUDA Events for GPU-side timing, eliminating CPU-GPU synchronization overhead that would otherwise inflate measurements at low batch sizes.
 
-| Method | SISO BS=1 P99/P50 | MIMO BS=1 P99/P50 |
-|--------|-------------------|-------------------|
-| PyTorch eager | 1.58x | 1.20x |
-| Triton full fused | 1.09x | 1.03x |
-| Triton full + Graph | 1.10x | 1.03x |
+#### d_model=256 SISO — P50 / P99 (ms)
+
+| Backend | BS=1 | BS=8 | BS=32 | BS=128 |
+|---------|------|------|-------|--------|
+| PyTorch eager | 1.151 / 1.819 | 1.487 / 1.647 | 1.365 / 1.909 | 1.947 / 2.891 |
+| torch.compile | 0.327 / 0.391 | 0.394 / 0.447 | 0.404 / 0.581 | 0.417 / 0.684 |
+| Triton basic | 0.950 / 0.973 | 0.980 / 1.006 | 1.001 / 1.054 | 1.019 / 1.097 |
+| Triton fused | 0.922 / 0.931 | 0.950 / 0.994 | 0.969 / 1.025 | 0.980 / 1.060 |
+| Triton fused+Graph | 0.200 / 0.206 | 0.236 / 0.244 | 0.255 / 0.270 | 0.317 / 0.337 |
+| Triton full fused | 0.228 / 0.249 | 0.231 / 0.246 | 0.245 / 0.295 | 0.309 / 0.376 |
+| **Triton full+Graph** | **0.091 / 0.100** | **0.095 / 0.099** | **0.117 / 0.131** | **0.184 / 0.197** |
+
+#### d_model=256 MIMO — P50 / P99 (ms)
+
+| Backend | BS=1 | BS=8 | BS=32 | BS=128 |
+|---------|------|------|-------|--------|
+| PyTorch eager | 1.236 / 1.484 | 1.360 / 1.577 | 1.539 / 2.030 | 1.622 / 2.318 |
+| torch.compile | 0.472 / 0.534 | 0.526 / 0.569 | 0.541 / 0.587 | 0.546 / 0.583 |
+| Triton basic | 0.924 / 0.949 | 0.959 / 0.985 | 0.970 / 0.979 | 0.971 / 0.981 |
+| Triton fused | 0.881 / 0.897 | 0.929 / 0.952 | 0.938 / 0.953 | 0.945 / 0.971 |
+| Triton fused+Graph | 0.121 / 0.127 | 0.231 / 0.238 | 0.226 / 0.234 | 0.269 / 0.279 |
+| Triton full fused | **0.065 / 0.068** | 0.257 / 0.263 | 0.285 / 0.324 | 0.510 / 0.530 |
+| **Triton full+Graph** | 0.070 / 0.073 | **0.150 / 0.155** | **0.177 / 0.183** | **0.295 / 0.305** |
+
+#### d_model=512 SISO — P50 / P99 (ms)
+
+| Backend | BS=1 | BS=8 | BS=32 |
+|---------|------|------|-------|
+| PyTorch eager | 1.090 / 1.786 | 0.291 / 1.615 | 1.936 / 2.097 |
+| torch.compile | 0.067 / 0.457 | 0.397 / 0.453 | 0.414 / 0.460 |
+| Triton basic | 0.635 / 0.658 | 0.976 / 1.397 | 1.012 / 1.033 |
+| Triton fused | 0.927 / 1.029 | 0.948 / 1.040 | 0.983 / 1.020 |
+| Triton fused+Graph | 0.142 / 0.149 | 0.165 / 0.170 | 0.244 / 0.322 |
+| Triton full fused | 0.239 / 0.349 | 0.238 / 0.264 | 0.392 / 0.407 |
+| **Triton full+Graph** | **0.103 / 0.111** | **0.114 / 0.122** | **0.266 / 0.274** |
+
+#### d_model=512 MIMO — P50 / P99 (ms)
+
+| Backend | BS=1 | BS=8 | BS=32 | BS=128 |
+|---------|------|------|-------|--------|
+| PyTorch eager | 1.310 / 1.563 | 1.557 / 6.566 | 1.617 / 2.898 | 1.674 / 3.208 |
+| torch.compile | 0.499 / 0.551 | 0.535 / 0.588 | 0.545 / 0.588 | 0.562 / 1.226 |
+| Triton basic | 0.976 / 1.079 | 0.981 / 1.017 | 1.002 / 1.025 | 1.000 / 1.013 |
+| Triton fused | 0.944 / 1.012 | 0.950 / 0.976 | 0.966 / 1.004 | 0.969 / 0.999 |
+| Triton fused+Graph | **0.241 / 0.248** | **0.261 / 0.268** | **0.280 / 0.286** | **0.362 / 0.369** |
+| Triton full fused | 0.376 / 0.387 | 0.470 / 0.480 | 0.665 / 0.941 | 1.947 / 1.965 |
+| Triton full+Graph | 0.284 / 0.290 | 0.310 / 0.314 | 0.543 / 0.549 | 1.859 / 1.865 |
+
+> ⚠️ At d_model=512 MIMO, **fused+Graph** is the fastest backend across all batch sizes (P50), not full+Graph. Register spillover makes full fused kernels slower than the simpler fused+Graph at d_model=512.
 
 ### Key Insights
 
