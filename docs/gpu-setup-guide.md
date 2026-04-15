@@ -89,7 +89,7 @@ nvidia-smi
 
 # ===== 2. 项目目录 =====
 ls ~/mamba3-fused-triton-kernel/
-# 期望: benchmarks/ docs/ notes/ references/ scripts/ src/
+# 期望: benchmarks/ docs/ references/ scripts/ src/
 
 # ===== 3. Git 状态 =====
 cd ~/mamba3-fused-triton-kernel && gh repo status
@@ -189,17 +189,18 @@ git add -A && git commit && git push
 - [ ] dtype optimization (fp16/bf16 中间变量)
 - [ ] Register pressure analysis via `triton.testing`
 - [ ] Cache hint optimization
-- [ ] `torch.compile` 兼容性测试
 - [ ] 更大模型 (d_model=2048) 的 benchmark
 - [ ] Prefill kernel fusion
+- [ ] MIMO BS=128 kernel 优化 (调整 BLOCK_D)
+- [ ] Multi-step 精度累积测试 (1000 步)
 
 ### 5.3 MVP 实际达成
 
 | 指标 | MVP 目标 | 实际结果 | 状态 |
 |------|---------|---------|------|
 | **正确性** | vs PyTorch atol < 1e-2 | atol < 1e-3 | ✅ 超出目标 |
-| **单步延迟 (batch=1)** | 比 Python 快 1.5x | Triton 1.25x, CUDA Graph **5.86x** | ✅ 超出目标 |
-| **端到端 decode (seq=1K)** | 比 Python 快 1.3x | Triton 1.31x, CUDA Graph **8.00x** | ✅ 超出目标 |
+| **单步延迟 (batch=1)** | 比 Python 快 1.5x | Full fused **5.7-6.8x**, Full+Graph **14-19x** | ✅ 远超目标 |
+| **端到端 decode (seq=1K)** | 比 Python 快 1.3x | CUDA Graph **8.00x** | ✅ 超出目标 |
 
 ---
 
@@ -209,12 +210,17 @@ git add -A && git commit && git push
 |------|------|------|
 | `src/kernels/siso_decode.py` | SISO fused kernel | 核心代码 |
 | `src/kernels/mimo_decode.py` | MIMO fused kernel | 核心代码 |
+| `src/kernels/siso_decode_fused.py` | SISO + silu gate fused | 部分融合 |
+| `src/kernels/mimo_decode_fused.py` | MIMO + silu gate fused | 部分融合 |
+| `src/kernels/fused_full_decode.py` | **全步骤融合 kernel** | 最佳性能 |
 | `src/kernels/utils.py` | 共享工具函数 | RoPE, trapezoidal, PyTorch 参考 |
 | `src/models/mamba3.py` | Mamba3 模型定义 | 含训练 forward + 单步 decode |
-| `src/models/inference.py` | 推理接口 | Triton/PyTorch 后端切换 |
-| `benchmarks/run_bench.py` | Benchmark 主脚本 | 延迟对比测试 |
+| `src/models/inference.py` | 推理接口 | Triton/PyTorch 后端 + CUDA Graph |
+| `benchmarks/run_bench_extended.py` | 8-way ablation benchmark | 主 benchmark 脚本 |
+| `benchmarks/profile_step.py` | Profiling 脚本 | torch.profiler 延迟分解 |
 | `scripts/setup_gpu_env.sh` | GPU 一键配置 | **新实例必运行** |
 | `docs/plan.md` | MVP 完整计划 | 算法细节 |
+| `docs/experiment-log.md` | 实验日志 | 结果、发现、bug 记录 |
 | `docs/gpu-setup-guide.md` | 本文档 | 会话交接 |
 
 ---

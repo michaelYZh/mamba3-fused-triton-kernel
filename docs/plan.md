@@ -303,14 +303,14 @@ def mamba3_decoding_kernel(
 
 ## 6. Success Criteria
 
-| Metric | MVP Target | Excellent |
-|--------|-----------|-----------|
-| **Correctness** | vs PyTorch reference atol < 1e-2 | atol < 1e-3 |
-| **Single-step latency (batch=1)** | 1.5x faster than Python | 2x+ faster |
-| **End-to-end decode (seq=1K)** | 1.3x faster than Python | 1.5x+ faster |
-| **Code quality** | Passes correctness tests + benchmark | Integrable into inference framework |
+| Metric | MVP Target | Excellent | Actual |
+|--------|-----------|-----------|--------|
+| **Correctness** | vs PyTorch reference atol < 1e-2 | atol < 1e-3 | atol < 1e-3 ✅ |
+| **Single-step latency (batch=1)** | 1.5x faster than Python | 2x+ faster | 14-19x ✅ |
+| **End-to-end decode (seq=1K)** | 1.3x faster than Python | 1.5x+ faster | 8x ✅ |
+| **Code quality** | Passes correctness tests + benchmark | Integrable into inference framework | Tests + benchmarks ✅ |
 
 ---
 
-*Generated: 2026-04-05*
+*Generated: 2026-04-05 · Updated: 2026-04-15*
 *Tech stack: Triton + PyTorch + Python*

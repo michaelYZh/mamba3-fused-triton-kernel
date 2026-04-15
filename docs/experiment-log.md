@@ -1,6 +1,6 @@
 # Experiment Log
 
-Daily experiment notes are recorded here as development progresses.
+Development progress and experiment results.
 
 ---
 

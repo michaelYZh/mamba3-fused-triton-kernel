@@ -35,14 +35,19 @@ mamba3-fused-triton-kernel/
 │   └── tests/
 │       ├── test_siso.py           # SISO kernel vs PyTorch reference
 │       ├── test_mimo.py           # MIMO kernel vs PyTorch reference
-│       └── test_trapezoidal.py    # Trapezoidal discretization validation
+│       ├── test_trapezoidal.py    # Trapezoidal discretization validation
+│       └── test_full_fused.py     # Full-step fused kernel correctness
 ├── benchmarks/
-│   ├── run_bench_extended.py      # 8-way ablation benchmark
+│   ├── run_bench_extended.py      # 8-way ablation benchmark (primary)
+│   ├── run_bench.py               # 4-way ablation benchmark
+│   ├── profile_step.py            # Latency breakdown profiling
 │   └── results/                   # Benchmark output (JSON)
 ├── references/
 │   └── mamba3-pytorch/            # Reference implementation
 └── docs/
-    └── plan.md                    # Detailed MVP execution plan
+    ├── plan.md                    # Detailed MVP execution plan + algorithm math
+    ├── experiment-log.md          # Experiment results, findings, bug fixes
+    └── gpu-setup-guide.md         # GPU environment setup & session handover
 ```
 
 ## Setup
@@ -99,9 +104,10 @@ for token_emb in token_sequence:
 pytest src/tests/ -v
 
 # Specific test suite
-pytest src/tests/test_siso.py -v     # SISO kernel correctness
-pytest src/tests/test_mimo.py -v     # MIMO kernel correctness
+pytest src/tests/test_siso.py -v         # SISO kernel correctness
+pytest src/tests/test_mimo.py -v         # MIMO kernel correctness
 pytest src/tests/test_trapezoidal.py -v  # Trapezoidal gate behavior
+pytest src/tests/test_full_fused.py -v   # Full-step fused kernel correctness
 ```
 
 ## Running Benchmarks
