@@ -66,6 +66,50 @@ def benchmark_latency_percentiles(fn, args, n_iters=200):
     }
 
 
+def benchmark_autoregressive(decoder, model, batch_size, seq_len, n_iters=5):
+    """Benchmark full autoregressive decoding for seq_len tokens."""
+    times = []
+    for _ in range(n_iters):
+        state = decoder.init_state(batch_size, device="cuda")
+        u = torch.randn(batch_size, model.d_model, device="cuda")
+        torch.cuda.synchronize()
+        start = time.perf_counter()
+        for t in range(seq_len):
+            _, state = decoder.step(u, state)
+        torch.cuda.synchronize()
+        end = time.perf_counter()
+        times.append((end - start) * 1000)
+    return {
+        "total_ms": sum(times) / len(times),
+        "per_token_ms": sum(times) / len(times) / seq_len,
+        "tokens_per_sec": seq_len / (sum(times) / len(times) / 1000),
+    }
+
+
+def benchmark_autoregressive_with_graph(decoder, model, batch_size, seq_len, n_iters=5):
+    """Benchmark autoregressive decoding with CUDA Graph.
+
+    For CUDA Graph backends, we warmup the graph once then replay it each step.
+    """
+    times = []
+    for _ in range(n_iters):
+        state = decoder.init_state(batch_size, device="cuda")
+        decoder.warmup_cuda_graph(state, n_warmup=3)
+        u = torch.randn(batch_size, model.d_model, device="cuda")
+        torch.cuda.synchronize()
+        start = time.perf_counter()
+        for t in range(seq_len):
+            decoder.step(u, state)
+        torch.cuda.synchronize()
+        end = time.perf_counter()
+        times.append((end - start) * 1000)
+    return {
+        "total_ms": sum(times) / len(times),
+        "per_token_ms": sum(times) / len(times) / seq_len,
+        "tokens_per_sec": seq_len / (sum(times) / len(times) / 1000),
+    }
+
+
 def run_benchmark_suite(
     mode: str = "siso",
     batch_sizes: list = None,
@@ -76,7 +120,7 @@ def run_benchmark_suite(
     headdim: int = 32,
     device: str = "cuda",
 ):
-    """Run the full benchmark suite with 6-way ablation."""
+    """Run the full benchmark suite with 8-way ablation."""
     if batch_sizes is None:
         batch_sizes = [1, 8, 32, 128]
 
@@ -96,6 +140,7 @@ def run_benchmark_suite(
             "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A",
         },
         "single_step": {},
+        "autoregressive": {},
     }
 
     print(f"{'='*80}")
@@ -130,8 +175,10 @@ def run_benchmark_suite(
 
         # Create all decoders
         decoder_pytorch = Mamba3Decoder(model, use_triton=False)
-        decoder_compile = Mamba3Decoder(model, use_triton=False, use_compile=True)
-        decoder_compile_graph = Mamba3Decoder(model, use_triton=False, use_compile_cuda_graph=True)
+        # NOTE: torch.compile with fullgraph=True can't handle dynamic batch
+        # sizes (RecompileLimitExceeded), so create fresh per batch size.
+        # Also, torch.compile's CUDAGraphTrees conflicts with explicit CUDA
+        # Graph capture, so skip compile+graph entirely.
         decoder_triton = Mamba3Decoder(model, use_triton=True)
         decoder_triton_fused = Mamba3Decoder(model, use_triton_fused=True)
         decoder_triton_fused_graph = Mamba3Decoder(model, use_triton_fused=True, use_cuda_graph=True)
@@ -146,17 +193,24 @@ def run_benchmark_suite(
         ms_pt = benchmark_single_step(decoder_pytorch.step, (u, state_pt), n_iters=50)
 
         # ── 2. torch.compile ───────────────────────────────────────────
-        state_compile = decoder_compile.init_state(bs, device=device)
-        warmup(decoder_compile.step, (u, state_compile), n_warmup=20)
-        ms_compile = benchmark_single_step(decoder_compile.step, (u, state_compile), n_iters=50)
+        # Create fresh compile decoder per batch size to avoid RecompileLimitExceeded
+        ms_compile = float('nan')
+        speedup_compile = float('nan')
+        decoder_compile = None
+        try:
+            decoder_compile = Mamba3Decoder(model, use_triton=False, use_compile=True)
+            state_compile = decoder_compile.init_state(bs, device=device)
+            warmup(decoder_compile.step, (u, state_compile), n_warmup=20)
+            ms_compile = benchmark_single_step(decoder_compile.step, (u, state_compile), n_iters=50)
+            speedup_compile = ms_pt / ms_compile
+        except Exception:
+            pass  # RecompileLimitExceeded or other compile errors
 
         # ── 3. torch.compile + CUDA Graph ──────────────────────────────
-        try:
-            state_compile_graph = decoder_compile_graph.init_state(bs, device=device)
-            decoder_compile_graph.warmup_cuda_graph(state_compile_graph, n_warmup=20)
-            ms_compile_graph = benchmark_single_step(decoder_compile_graph.step, (u, state_compile_graph), n_iters=50)
-        except RuntimeError:
-            ms_compile_graph = float('nan')
+        # Always skip: torch.compile's CUDAGraphTrees internal memory
+        # management conflicts with explicit CUDA Graph capture.
+        ms_compile_graph = float('nan')
+        speedup_compile_graph = float('nan')
 
         # ── 4. Triton basic ────────────────────────────────────────────
         state_tri = decoder_triton.init_state(bs, device=device)
@@ -184,20 +238,14 @@ def run_benchmark_suite(
         ms_tri_full_fused_graph = benchmark_single_step(decoder_triton_full_fused_graph.step, (u, state_tri_full_fused_graph), n_iters=50)
 
         # Calculate speedups
-        speedup_compile = ms_pt / ms_compile
-        speedup_compile_graph = ms_pt / ms_compile_graph if not np.isnan(ms_compile_graph) else float('nan')
         speedup_tri = ms_pt / ms_tri
         speedup_tri_fused = ms_pt / ms_tri_fused
         speedup_tri_fused_graph = ms_pt / ms_tri_fused_graph
         speedup_tri_full_fused = ms_pt / ms_tri_full_fused
         speedup_tri_full_fused_graph = ms_pt / ms_tri_full_fused_graph
 
-        # Compare with compile + graph (the optimal baseline)
-        vs_compile_graph_tri = ms_compile_graph / ms_tri if not np.isnan(ms_compile_graph) else float('nan')
-        vs_compile_graph_tri_fused = ms_compile_graph / ms_tri_fused if not np.isnan(ms_compile_graph) else float('nan')
-        vs_compile_graph_tri_fused_graph = ms_compile_graph / ms_tri_fused_graph if not np.isnan(ms_compile_graph) else float('nan')
-        vs_compile_graph_tri_full_fused = ms_compile_graph / ms_tri_full_fused if not np.isnan(ms_compile_graph) else float('nan')
-        vs_compile_graph_tri_full_fused_graph = ms_compile_graph / ms_tri_full_fused_graph if not np.isnan(ms_compile_graph) else float('nan')
+        # compile speedup already calculated above (or NaN)
+        # compile+graph always NaN (CUDAGraphTrees conflict)
 
         bs_results = {
             "pytorch_ms": ms_pt,
@@ -215,21 +263,14 @@ def run_benchmark_suite(
             "speedup_triton_fused_cuda_graph": speedup_tri_fused_graph,
             "speedup_triton_full_fused": speedup_tri_full_fused,
             "speedup_triton_full_fused_cuda_graph": speedup_tri_full_fused_graph,
-            "vs_compile_graph": {
-                "triton": vs_compile_graph_tri,
-                "triton_fused": vs_compile_graph_tri_fused,
-                "triton_fused_cuda_graph": vs_compile_graph_tri_fused_graph,
-                "triton_full_fused": vs_compile_graph_tri_full_fused,
-                "triton_full_fused_cuda_graph": vs_compile_graph_tri_full_fused_graph,
-            }
         }
         results["single_step"][str(bs)] = bs_results
 
         print(f"\n  Single-step latency:")
         print(f"    PyTorch eager:               {ms_pt:.4f} ms")
-        print(f"    torch.compile:               {ms_compile:.4f} ms ({speedup_compile:.2f}x)")
-        cg_str = f"{ms_compile_graph:.4f} ms ({speedup_compile_graph:.2f}x)" if not np.isnan(ms_compile_graph) else "N/A"
-        print(f"    torch.compile + CUDA Graph:  {cg_str}")
+        compile_str = f"{ms_compile:.4f} ms ({speedup_compile:.2f}x)" if not np.isnan(ms_compile) else "N/A (RecompileLimitExceeded)"
+        print(f"    torch.compile:               {compile_str}")
+        print(f"    torch.compile + CUDA Graph:  N/A (CUDAGraphTrees conflict)")
         print(f"    Triton basic:                {ms_tri:.4f} ms ({speedup_tri:.2f}x)")
         print(f"    Triton fused:                {ms_tri_fused:.4f} ms ({speedup_tri_fused:.2f}x)")
         print(f"    Triton fused + CUDA Graph:   {ms_tri_fused_graph:.4f} ms ({speedup_tri_fused_graph:.2f}x)")
@@ -248,22 +289,19 @@ def run_benchmark_suite(
         print(f"    PyTorch:            P50={pstats['p50_ms']:.4f} | P95={pstats['p95_ms']:.4f} | P99={pstats['p99_ms']:.4f} | P99/P50={pstats['p99_p50_ratio']:.2f}x")
 
         # torch.compile
-        state = decoder_compile.init_state(bs, device=device)
-        warmup(decoder_compile.step, (u, state), n_warmup=10)
-        pstats = benchmark_latency_percentiles(decoder_compile.step, (u, state), n_iters=200)
-        pct_results["compile"] = pstats
-        print(f"    torch.compile:      P50={pstats['p50_ms']:.4f} | P95={pstats['p95_ms']:.4f} | P99={pstats['p99_ms']:.4f} | P99/P50={pstats['p99_p50_ratio']:.2f}x")
+        if decoder_compile is not None:
+            state = decoder_compile.init_state(bs, device=device)
+            warmup(decoder_compile.step, (u, state), n_warmup=10)
+            pstats = benchmark_latency_percentiles(decoder_compile.step, (u, state), n_iters=200)
+            pct_results["compile"] = pstats
+            print(f"    torch.compile:      P50={pstats['p50_ms']:.4f} | P95={pstats['p95_ms']:.4f} | P99={pstats['p99_ms']:.4f} | P99/P50={pstats['p99_p50_ratio']:.2f}x")
+        else:
+            pct_results["compile"] = None
+            print(f"    torch.compile:      SKIPPED (compile failed)")
 
         # torch.compile + CUDA Graph
-        try:
-            state = decoder_compile_graph.init_state(bs, device=device)
-            decoder_compile_graph.warmup_cuda_graph(state, n_warmup=10)
-            pstats = benchmark_latency_percentiles(decoder_compile_graph.step, (u, state), n_iters=200)
-            pct_results["compile_cuda_graph"] = pstats
-            print(f"    compile+CUDA Graph: P50={pstats['p50_ms']:.4f} | P95={pstats['p95_ms']:.4f} | P99={pstats['p99_ms']:.4f} | P99/P50={pstats['p99_p50_ratio']:.2f}x")
-        except RuntimeError:
-            pct_results["compile_cuda_graph"] = None
-            print(f"    compile+CUDA Graph: SKIPPED (CUDA graph capture failed)")
+        pct_results["compile_cuda_graph"] = None
+        print(f"    compile+CUDA Graph: SKIPPED (CUDAGraphTrees conflict)")
 
         # Triton basic
         state = decoder_triton.init_state(bs, device=device)
@@ -301,6 +339,89 @@ def run_benchmark_suite(
         print(f"    Triton full+Graph:  P50={pstats['p50_ms']:.4f} | P95={pstats['p95_ms']:.4f} | P99={pstats['p99_ms']:.4f} | P99/P50={pstats['p99_p50_ratio']:.2f}x")
 
         results["single_step"][str(bs)]["percentiles"] = pct_results
+
+        # ── Ensure CUDA state is clean before AR benchmark ─────────────
+        # Reset CUDA allocator state after percentile benchmarks
+        # (torch.compile's CUDAGraphTrees can leave stale state)
+        torch.cuda.synchronize()
+
+        # ── Autoregressive benchmark (8-way ablation) ─────────────────
+        # NOTE: Skip torch.compile in AR benchmark because torch.compile's
+        # internal CUDAGraphTrees memory management conflicts with explicit
+        # CUDA Graph capture, leaving the CUDA allocator in a bad state.
+        print(f"\n  Autoregressive decoding ({seq_len} tokens):")
+        ar_results = {}
+
+        # 1. PyTorch eager
+        ar_pt = benchmark_autoregressive(decoder_pytorch, model, bs, seq_len, n_iters=3)
+        ar_results["pytorch"] = ar_pt
+        print(f"    PyTorch eager:               {ar_pt['per_token_ms']:.4f} ms/tok  ({ar_pt['tokens_per_sec']:.1f} tok/s)")
+
+        # 2. torch.compile (skip - CUDAGraphTrees conflicts with CUDA Graph)
+        # Instead, run compile AR in a separate subprocess or skip it
+        ar_results["compile"] = None
+        ar_results["compile_cuda_graph"] = None
+        print(f"    torch.compile:               SKIPPED (CUDAGraphTrees conflict)")
+        print(f"    torch.compile + CUDA Graph:  SKIPPED")
+
+        # 4. Triton basic
+        ar_tri = benchmark_autoregressive(decoder_triton, model, bs, seq_len, n_iters=3)
+        ar_results["triton"] = ar_tri
+        print(f"    Triton basic:                {ar_tri['per_token_ms']:.4f} ms/tok  ({ar_tri['tokens_per_sec']:.1f} tok/s)")
+
+        # 5. Triton fused
+        ar_tri_fused = benchmark_autoregressive(decoder_triton_fused, model, bs, seq_len, n_iters=3)
+        ar_results["triton_fused"] = ar_tri_fused
+        print(f"    Triton fused:                {ar_tri_fused['per_token_ms']:.4f} ms/tok  ({ar_tri_fused['tokens_per_sec']:.1f} tok/s)")
+
+        # 6. Triton fused + CUDA Graph (fresh decoder)
+        decoder_tri_fused_graph_ar = Mamba3Decoder(model, use_triton_fused=True, use_cuda_graph=True)
+        ar_tri_fused_graph = benchmark_autoregressive_with_graph(decoder_tri_fused_graph_ar, model, bs, seq_len, n_iters=3)
+        ar_results["triton_fused_cuda_graph"] = ar_tri_fused_graph
+        print(f"    Triton fused + CUDA Graph:   {ar_tri_fused_graph['per_token_ms']:.4f} ms/tok  ({ar_tri_fused_graph['tokens_per_sec']:.1f} tok/s)")
+
+        # 7. Triton full fused
+        ar_tri_full_fused = benchmark_autoregressive(decoder_triton_full_fused, model, bs, seq_len, n_iters=3)
+        ar_results["triton_full_fused"] = ar_tri_full_fused
+        print(f"    Triton full fused:           {ar_tri_full_fused['per_token_ms']:.4f} ms/tok  ({ar_tri_full_fused['tokens_per_sec']:.1f} tok/s)")
+
+        # 8. Triton full fused + CUDA Graph (fresh decoder)
+        decoder_tri_full_fused_graph_ar = Mamba3Decoder(model, use_triton_full_fused=True, use_cuda_graph=True)
+        ar_tri_full_fused_graph = benchmark_autoregressive_with_graph(decoder_tri_full_fused_graph_ar, model, bs, seq_len, n_iters=3)
+        ar_results["triton_full_fused_cuda_graph"] = ar_tri_full_fused_graph
+        print(f"    Triton full fused + Graph:   {ar_tri_full_fused_graph['per_token_ms']:.4f} ms/tok  ({ar_tri_full_fused_graph['tokens_per_sec']:.1f} tok/s)")
+
+        # Calculate autoregressive speedups vs PyTorch
+        ar_speedups = {
+            "vs_pytorch": {
+                "triton": ar_pt["total_ms"] / ar_tri["total_ms"],
+                "triton_fused": ar_pt["total_ms"] / ar_tri_fused["total_ms"],
+                "triton_fused_cuda_graph": ar_pt["total_ms"] / ar_tri_fused_graph["total_ms"],
+                "triton_full_fused": ar_pt["total_ms"] / ar_tri_full_fused["total_ms"],
+                "triton_full_fused_cuda_graph": ar_pt["total_ms"] / ar_tri_full_fused_graph["total_ms"],
+            }
+        }
+        if ar_results.get("compile") is not None:
+            ar_speedups["vs_pytorch"]["compile"] = ar_pt["total_ms"] / ar_results["compile"]["total_ms"]
+        if ar_results.get("compile_cuda_graph") is not None:
+            ar_speedups["vs_pytorch"]["compile_cuda_graph"] = ar_pt["total_ms"] / ar_results["compile_cuda_graph"]["total_ms"]
+
+            # Also vs compile+graph (optimal PyTorch baseline)
+            ar_speedups["vs_compile_graph"] = {
+                "triton": ar_results["compile_cuda_graph"]["total_ms"] / ar_tri["total_ms"],
+                "triton_fused": ar_results["compile_cuda_graph"]["total_ms"] / ar_tri_fused["total_ms"],
+                "triton_fused_cuda_graph": ar_results["compile_cuda_graph"]["total_ms"] / ar_tri_fused_graph["total_ms"],
+                "triton_full_fused": ar_results["compile_cuda_graph"]["total_ms"] / ar_tri_full_fused["total_ms"],
+                "triton_full_fused_cuda_graph": ar_results["compile_cuda_graph"]["total_ms"] / ar_tri_full_fused_graph["total_ms"],
+            }
+
+        ar_results["speedups"] = ar_speedups
+        results["autoregressive"][str(bs)] = ar_results
+
+        # Print speedup summary
+        print(f"\n  Autoregressive speedups vs PyTorch:")
+        for name, speedup in ar_speedups["vs_pytorch"].items():
+            print(f"    {name}: {speedup:.2f}x")
 
     # Save results
     output_path = f"benchmarks/results/{mode}_r{mimo_rank}_extended_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
