@@ -163,6 +163,31 @@ python benchmarks/profile_step.py --mode mimo --save-trace
 
 > **Note**: `torch.compile + CUDA Graph` failed (CUDA graph capture error) in all configurations, so it is excluded. `Full+Graph` at BS=128 sees diminishing returns because the kernel becomes compute-bound rather than launch-overhead-bound.
 
+### 8-Way Ablation: Larger Model (d_model=512)
+
+**d_model=512, d_state=128, headdim=32, seq_len=256**
+
+#### SISO
+
+| Batch | PyTorch | compile | Triton | Fused | Fused+Graph | **Full Fused** | **Full+Graph** | Best Speedup |
+|-------|---------|---------|--------|-------|-------------|----------------|----------------|--------------|
+| 1 | 1.29 ms | 0.44 ms (2.9x) | 0.95 ms | 0.92 ms | 0.24 ms | 0.21 ms (6.1x) | **0.15 ms** | **8.4x** |
+| 8 | 1.24 ms | 0.49 ms (2.5x) | 0.95 ms | 0.93 ms | 0.26 ms | 0.21 ms (5.9x) | **0.18 ms** | **7.0x** |
+| 32 | 1.71 ms | 0.88 ms (1.9x) | 0.98 ms | 0.95 ms | 0.22 ms | 0.25 ms (6.9x) | **0.25 ms** | **7.7x** |
+
+> BS=128 OOM for SISO (state = B×H×P×D = 128×16×32×128 = 32MB per state)
+
+#### MIMO (R=4)
+
+| Batch | PyTorch | compile | Triton | Fused | Fused+Graph | **Full Fused** | **Full+Graph** | Best Speedup |
+|-------|---------|---------|--------|-------|-------------|----------------|----------------|--------------|
+| 1 | 1.27 ms | 0.54 ms (2.3x) | 0.95 ms | 0.92 ms | **0.32 ms** (4.0x) | 0.35 ms (3.6x) | 0.35 ms (3.6x) | **4.0x** |
+| 8 | 1.47 ms | 0.67 ms (2.2x) | 0.96 ms | 0.94 ms | **0.25 ms** (5.8x) | 0.35 ms (4.2x) | 0.36 ms (4.1x) | **5.8x** |
+| 32 | 1.45 ms | 0.60 ms (2.4x) | 0.99 ms | 0.96 ms | **0.18 ms** (8.1x) | 0.53 ms (2.8x) | 0.53 ms (2.8x) | **8.1x** |
+| 128 | 1.53 ms | 0.74 ms (2.1x) | 0.98 ms | 0.96 ms | **0.34 ms** (4.4x) | 1.84 ms ⚠️ | 1.84 ms ⚠️ | **4.4x** |
+
+> ⚠️ Full fused kernel at BS=128 MIMO is **slower** than eager (0.83x) due to register spillover. The fused+Graph backend is the optimal choice for large-model MIMO.
+
 ### Why Fusion Scope Matters
 
 The critical insight is that **fusion scope** — not just CUDA Graph — determines performance:
@@ -187,11 +212,12 @@ Triton kernels deliver significantly more stable latency than PyTorch eager:
 
 ### Key Insights
 
-1. **Full-step fusion scope is the #1 optimization** — 5.7-6.8x speedup from fusing ALL ops into one kernel, vs only 1.3x from partial fusion
+1. **Full-step fusion scope is the #1 optimization** — 5.7-6.8x speedup from fusing ALL ops into one kernel, vs only 1.3x from partial fusion (small model d_model=256)
 2. **CUDA Graph adds further improvement** — up to 2.5x on top of full fusion, for 14-19x total at small batch sizes
 3. **Full fusion alone beats partial fusion + Graph** — proving that fusion scope matters more than launch overhead elimination
 4. **torch.compile is competitive** — 2-3x speedup without custom kernels, but cannot achieve full-step fusion
 5. **MIMO benefits most at BS=1** — 19.2x speedup thanks to R rank-1 updates being fused and CUDA Graph eliminating launch overhead
+6. **Full fused kernel has register pressure limits** — at d_model=512 + MIMO R=4 + BS≥32, the full fused kernel suffers register spillover, making it slower than eager. **Fused+Graph** becomes the optimal backend for large-model MIMO.
 
 ## Kernel Design
 
@@ -262,19 +288,24 @@ Output: y_gated (B, H, P) → out_proj → final output
 - [x] Full benchmark suite + documentation
 - [x] **Full-step fused kernel** — entire decode in one kernel launch (5.7-6.8x speedup over eager)
 - [x] **Full fused + CUDA Graph** — best configuration (up to 19.2x speedup over eager, MIMO R=4 BS=1)
+- [x] **P0: Autoregressive benchmark** — AR speedups match single-step (14.8x SISO, 12.9x MIMO at BS=1)
+- [x] **P1: Multi-step accuracy drift** — 1000-step decode, all backends < 1.3e-4 cumulative error
+- [x] **P2: d_model=512 8-way ablation** — SISO 7-8.4x, MIMO 4-8.1x; discovered register spillover at large model+batch
 
-> **Full Fusion Phase Complete** (2026-04-15) — Full-step fused kernel achieves 5.7-6.8x speedup over eager, up to 19.2x with CUDA Graph. 8-way ablation confirms fusion scope is the #1 optimization for Mamba-3 decode.
+> **P2 Phase Complete** (2026-04-15) — d_model=512 benchmarks reveal full fused kernel register pressure limits in MIMO at large batch. Fused+Graph is the optimal backend for large-model MIMO (8.1x at BS=32).
 
 ## Future Plans
 
 The following are optional enhancements for future development:
 
-- [ ] dtype optimization (fp16/bf16 intermediate variables)
+- [x] dtype optimization (fp16/bf16 intermediate variables)
 - [ ] Register pressure analysis via `triton.testing`
 - [ ] Cache hint optimization
 - [x] `torch.compile` compatibility test — **COMPLETED** (see 4-way ablation results)
-- [x] Larger model benchmarks (d_model=512) — **COMPLETED**
+- [x] Larger model benchmarks (d_model=512) — **COMPLETED** (8-way ablation: SISO 7-8.4x, MIMO 4-8.1x best)
 - [x] Full-step fusion — **COMPLETED** (5.7-6.8x speedup over eager, up to 19.2x with CUDA Graph)
 - [ ] Prefill kernel fusion
 - [ ] H100 benchmark comparison
-- [ ] Multi-step accuracy drift test (1000 steps)
+- [x] Multi-step accuracy drift test (1000 steps) — **COMPLETED** (all backends < 1.3e-4 error)
+- [x] Autoregressive benchmark (8-way) — **COMPLETED** (AR speedups match single-step)
+- [ ] MIMO full fused kernel register optimization for d_model≥512

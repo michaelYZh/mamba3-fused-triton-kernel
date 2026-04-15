@@ -1,0 +1,132 @@
+{
+  "timestamp": "2026-04-15T05:18:44.928254",
+  "config": {
+    "mode": "siso",
+    "mimo_rank": 1,
+    "seq_len": 256,
+    "batch_sizes": [
+      1
+    ],
+    "d_model": 512,
+    "d_state": 128,
+    "headdim": 32,
+    "device": "cuda",
+    "gpu_name": "NVIDIA A100-PCIE-40GB"
+  },
+  "single_step": {
+    "1": {
+      "pytorch_ms": 1.31106941960752,
+      "compile_ms": 0.42224717792123556,
+      "compile_cuda_graph_ms": NaN,
+      "triton_ms": 0.9207535395398736,
+      "triton_fused_ms": 0.8955261996015906,
+      "triton_fused_cuda_graph_ms": 0.132646718993783,
+      "triton_full_fused_ms": 0.20848830230534077,
+      "triton_full_fused_cuda_graph_ms": 0.15326096210628748,
+      "speedup_compile": 3.104980893092155,
+      "speedup_compile_cuda_graph": NaN,
+      "speedup_triton": 1.4239091823233156,
+      "speedup_triton_fused": 1.4640212873624467,
+      "speedup_triton_fused_cuda_graph": 9.883918950675051,
+      "speedup_triton_full_fused": 6.288455539761642,
+      "speedup_triton_full_fused_cuda_graph": 8.554490338500452,
+      "percentiles": {
+        "pytorch": {
+          "mean_ms": 1.2963386217597872,
+          "p50_ms": 1.256507937796414,
+          "p95_ms": 1.395359099842608,
+          "p99_ms": 2.1613293187692757,
+          "p99_p50_ratio": 1.7201079704754445
+        },
+        "compile": {
+          "mean_ms": 0.3313537733629346,
+          "p50_ms": 0.3272475441917777,
+          "p95_ms": 0.34555806778371334,
+          "p99_ms": 0.37532087648287416,
+          "p99_p50_ratio": 1.146902041418908
+        },
+        "compile_cuda_graph": null,
+        "triton": {
+          "mean_ms": 0.9716122876852751,
+          "p50_ms": 0.9645739337429404,
+          "p95_ms": 1.0309239267371588,
+          "p99_ms": 1.1095681088045233,
+          "p99_p50_ratio": 1.150319400088852
+        },
+        "triton_fused": {
+          "mean_ms": 0.9452229004818946,
+          "p50_ms": 0.9373464854434133,
+          "p95_ms": 1.0055095888674255,
+          "p99_ms": 1.1115744709968567,
+          "p99_p50_ratio": 1.1858736211839793
+        },
+        "triton_fused_cuda_graph": {
+          "mean_ms": 0.2486962708644569,
+          "p50_ms": 0.24710246361792088,
+          "p95_ms": 0.25772996013984084,
+          "p99_ms": 0.26941345073282713,
+          "p99_p50_ratio": 1.0902904276559717
+        },
+        "triton_full_fused": {
+          "mean_ms": 0.2717126230709255,
+          "p50_ms": 0.2699315082281828,
+          "p95_ms": 0.2811485552228987,
+          "p99_ms": 0.28616577154025435,
+          "p99_p50_ratio": 1.060142157611138
+        },
+        "triton_full_fused_cuda_graph": {
+          "mean_ms": 0.16901818104088306,
+          "p50_ms": 0.1680450513958931,
+          "p95_ms": 0.1723616267554462,
+          "p99_ms": 0.18130647251382462,
+          "p99_p50_ratio": 1.0789158681423427
+        }
+      }
+    }
+  },
+  "autoregressive": {
+    "1": {
+      "pytorch": {
+        "total_ms": 278.94886233843863,
+        "per_token_ms": 1.089643993509526,
+        "tokens_per_sec": 917.7309341000445
+      },
+      "compile": null,
+      "compile_cuda_graph": null,
+      "triton": {
+        "total_ms": 242.02625065421066,
+        "per_token_ms": 0.9454150416180104,
+        "tokens_per_sec": 1057.7365029950988
+      },
+      "triton_fused": {
+        "total_ms": 233.97206336570284,
+        "per_token_ms": 0.9139533725222767,
+        "tokens_per_sec": 1094.147721387861
+      },
+      "triton_fused_cuda_graph": {
+        "total_ms": 55.75297509009639,
+        "per_token_ms": 0.21778505894568903,
+        "tokens_per_sec": 4591.683216658948
+      },
+      "triton_full_fused": {
+        "total_ms": 52.132270919779934,
+        "per_token_ms": 0.20364168328039037,
+        "tokens_per_sec": 4910.586005239011
+      },
+      "triton_full_fused_cuda_graph": {
+        "total_ms": 21.6817664137731,
+        "per_token_ms": 0.08469440005380117,
+        "tokens_per_sec": 11807.156073657303
+      },
+      "speedups": {
+        "vs_pytorch": {
+          "triton": 1.15255622720438,
+          "triton_fused": 1.1922314926224171,
+          "triton_fused_cuda_graph": 5.003300037130922,
+          "triton_full_fused": 5.350790545220625,
+          "triton_full_fused_cuda_graph": 12.865596696090199
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,358 @@
+{
+  "timestamp": "2026-04-15T05:20:30.927464",
+  "config": {
+    "mode": "siso",
+    "mimo_rank": 1,
+    "seq_len": 256,
+    "batch_sizes": [
+      1,
+      8,
+      32
+    ],
+    "d_model": 512,
+    "d_state": 128,
+    "headdim": 32,
+    "device": "cuda",
+    "gpu_name": "NVIDIA A100-PCIE-40GB"
+  },
+  "single_step": {
+    "1": {
+      "pytorch_ms": 1.285576461814344,
+      "compile_ms": 0.43876153882592916,
+      "compile_cuda_graph_ms": NaN,
+      "triton_ms": 0.9468907210975885,
+      "triton_fused_ms": 0.9172388399019837,
+      "triton_fused_cuda_graph_ms": 0.2368996199220419,
+      "triton_full_fused_ms": 0.21231130231171846,
+      "triton_full_fused_cuda_graph_ms": 0.15369441825896502,
+      "speedup_compile": 2.930011744544395,
+      "speedup_compile_cuda_graph": NaN,
+      "speedup_triton": 1.3576819723443565,
+      "speedup_triton_fused": 1.401572203322442,
+      "speedup_triton_fused_cuda_graph": 5.426671694270328,
+      "speedup_triton_full_fused": 6.0551484909966895,
+      "speedup_triton_full_fused_cuda_graph": 8.364496748660267,
+      "percentiles": {
+        "pytorch": {
+          "mean_ms": 1.4190049632452428,
+          "p50_ms": 1.3477799948304892,
+          "p95_ms": 1.577485387679189,
+          "p99_ms": 2.1846326161175966,
+          "p99_p50_ratio": 1.620911888065499
+        },
+        "compile": {
+          "mean_ms": 0.3384803468361497,
+          "p50_ms": 0.3334039356559515,
+          "p95_ms": 0.3527302760630846,
+          "p99_ms": 0.3856595326215028,
+          "p99_p50_ratio": 1.1567335936294263
+        },
+        "compile_cuda_graph": null,
+        "triton": {
+          "mean_ms": 0.9720056620426476,
+          "p50_ms": 0.9709518635645509,
+          "p95_ms": 0.9819760569371283,
+          "p99_ms": 0.9927319106645881,
+          "p99_p50_ratio": 1.0224316445720372
+        },
+        "triton_fused": {
+          "mean_ms": 0.9445824602153152,
+          "p50_ms": 0.9445104515179992,
+          "p95_ms": 0.9528135182335973,
+          "p99_ms": 0.9624715149402618,
+          "p99_p50_ratio": 1.019016267520805
+        },
+        "triton_fused_cuda_graph": {
+          "mean_ms": 0.24205265450291336,
+          "p50_ms": 0.24134607519954443,
+          "p95_ms": 0.2436760114505887,
+          "p99_ms": 0.24830347159877417,
+          "p99_p50_ratio": 1.0288274685779637
+        },
+        "triton_full_fused": {
+          "mean_ms": 0.27484283898957074,
+          "p50_ms": 0.27276144828647375,
+          "p95_ms": 0.28273495845496655,
+          "p99_ms": 0.28628992149606347,
+          "p99_p50_ratio": 1.0495981866007
+        },
+        "triton_full_fused_cuda_graph": {
+          "mean_ms": 0.14216897427104414,
+          "p50_ms": 0.14120794367045164,
+          "p95_ms": 0.14499418903142214,
+          "p99_ms": 0.15096252318471637,
+          "p99_p50_ratio": 1.069079538025352
+        }
+      }
+    },
+    "8": {
+      "pytorch_ms": 1.235087481327355,
+      "compile_ms": 0.4865104192867875,
+      "compile_cuda_graph_ms": NaN,
+      "triton_ms": 0.9460214572027326,
+      "triton_fused_ms": 0.931256921030581,
+      "triton_fused_cuda_graph_ms": 0.2595842815935612,
+      "triton_full_fused_ms": 0.20950930193066597,
+      "triton_full_fused_cuda_graph_ms": 0.17643715720623732,
+      "speedup_compile": 2.538666043654241,
+      "speedup_compile_cuda_graph": NaN,
+      "speedup_triton": 1.3055596909813807,
+      "speedup_triton_fused": 1.3262585795985689,
+      "speedup_triton_fused_cuda_graph": 4.757944023980497,
+      "speedup_triton_full_fused": 5.895143890728484,
+      "speedup_triton_full_fused_cuda_graph": 7.000155187740084,
+      "percentiles": {
+        "pytorch": {
+          "mean_ms": 1.4060985040850937,
+          "p50_ms": 1.3642814010381699,
+          "p95_ms": 1.6299612238071857,
+          "p99_ms": 1.920607527717943,
+          "p99_p50_ratio": 1.4077796019621969
+        },
+        "compile": {
+          "mean_ms": 0.40607203380204737,
+          "p50_ms": 0.40196196641772985,
+          "p95_ms": 0.4403386963531375,
+          "p99_ms": 0.5016544857062397,
+          "p99_p50_ratio": 1.2480148064180447
+        },
+        "compile_cuda_graph": null,
+        "triton": {
+          "mean_ms": 1.010962874861434,
+          "p50_ms": 0.9863264858722687,
+          "p95_ms": 1.1341007775627074,
+          "p99_ms": 1.2358558201231062,
+          "p99_p50_ratio": 1.25298857713444
+        },
+        "triton_fused": {
+          "mean_ms": 0.9590823668986559,
+          "p50_ms": 0.9531275136396289,
+          "p95_ms": 0.9740026202052832,
+          "p99_ms": 1.1192399775609372,
+          "p99_p50_ratio": 1.1742814697342945
+        },
+        "triton_fused_cuda_graph": {
+          "mean_ms": 0.2782780642155558,
+          "p50_ms": 0.2774359891191125,
+          "p95_ms": 0.28128058183938265,
+          "p99_ms": 0.2887925948016345,
+          "p99_p50_ratio": 1.0409341474355234
+        },
+        "triton_full_fused": {
+          "mean_ms": 0.3082268184516579,
+          "p50_ms": 0.3067079233005643,
+          "p95_ms": 0.31642094254493713,
+          "p99_ms": 0.3174845175817609,
+          "p99_p50_ratio": 1.0351363413283454
+        },
+        "triton_full_fused_cuda_graph": {
+          "mean_ms": 0.1132204569876194,
+          "p50_ms": 0.11234695557504892,
+          "p95_ms": 0.11643660254776478,
+          "p99_ms": 0.12029697187244892,
+          "p99_p50_ratio": 1.0707630772610417
+        }
+      }
+    },
+    "32": {
+      "pytorch_ms": 1.7099445965141058,
+      "compile_ms": 0.8794059231877327,
+      "compile_cuda_graph_ms": NaN,
+      "triton_ms": 0.9790286421775818,
+      "triton_fused_ms": 0.9485834185034037,
+      "triton_fused_cuda_graph_ms": 0.2225889777764678,
+      "triton_full_fused_ms": 0.2488112403079867,
+      "triton_full_fused_cuda_graph_ms": 0.25155554059892893,
+      "speedup_compile": 1.9444315206745229,
+      "speedup_compile_cuda_graph": NaN,
+      "speedup_triton": 1.7465725953745348,
+      "speedup_triton_fused": 1.8026296508660407,
+      "speedup_triton_fused_cuda_graph": 7.682072192412404,
+      "speedup_triton_full_fused": 6.872457186409586,
+      "speedup_triton_full_fused_cuda_graph": 6.797483340827622,
+      "percentiles": {
+        "pytorch": {
+          "mean_ms": 1.9725074421148747,
+          "p50_ms": 1.9002320477738976,
+          "p95_ms": 2.212575171142816,
+          "p99_ms": 2.9851706000044897,
+          "p99_p50_ratio": 1.5709505602232035
+        },
+        "compile": {
+          "mean_ms": 0.41497346363030374,
+          "p50_ms": 0.41253806557506323,
+          "p95_ms": 0.42967653134837747,
+          "p99_ms": 0.4622958041727543,
+          "p99_p50_ratio": 1.1206136905895716
+        },
+        "compile_cuda_graph": null,
+        "triton": {
+          "mean_ms": 1.0064149822574109,
+          "p50_ms": 1.0046064853668213,
+          "p95_ms": 1.0185673250816762,
+          "p99_ms": 1.0327878268435595,
+          "p99_p50_ratio": 1.0280521197973833
+        },
+        "triton_fused": {
+          "mean_ms": 0.9829491283744574,
+          "p50_ms": 0.9820529958233237,
+          "p95_ms": 0.993950036354363,
+          "p99_ms": 1.0208275238983333,
+          "p99_p50_ratio": 1.0394831320101032
+        },
+        "triton_fused_cuda_graph": {
+          "mean_ms": 0.3125571727287024,
+          "p50_ms": 0.3258194774389267,
+          "p95_ms": 0.329308386426419,
+          "p99_ms": 0.3317051101475954,
+          "p99_p50_ratio": 1.018064091057208
+        },
+        "triton_full_fused": {
+          "mean_ms": 0.39161807275377214,
+          "p50_ms": 0.3902000607922673,
+          "p95_ms": 0.3996444749645889,
+          "p99_ms": 0.4028054000809788,
+          "p99_p50_ratio": 1.0323048111861322
+        },
+        "triton_full_fused_cuda_graph": {
+          "mean_ms": 0.26849021087400615,
+          "p50_ms": 0.26793847791850567,
+          "p95_ms": 0.2729981788434088,
+          "p99_ms": 0.2784190489910543,
+          "p99_p50_ratio": 1.039115587854225
+        }
+      }
+    }
+  },
+  "autoregressive": {
+    "1": {
+      "pytorch": {
+        "total_ms": 281.1923606786877,
+        "per_token_ms": 1.0984076589011238,
+        "tokens_per_sec": 910.4088012281584
+      },
+      "compile": null,
+      "compile_cuda_graph": null,
+      "triton": {
+        "total_ms": 245.95067735450962,
+        "per_token_ms": 0.9607448334160532,
+        "tokens_per_sec": 1040.8590972530865
+      },
+      "triton_fused": {
+        "total_ms": 235.5668703870227,
+        "per_token_ms": 0.9201830874493074,
+        "tokens_per_sec": 1086.7402516296406
+      },
+      "triton_fused_cuda_graph": {
+        "total_ms": 56.89780608129998,
+        "per_token_ms": 0.22225705500507806,
+        "tokens_per_sec": 4499.294746693878
+      },
+      "triton_full_fused": {
+        "total_ms": 53.03891864605248,
+        "per_token_ms": 0.2071832759611425,
+        "tokens_per_sec": 4826.64440631565
+      },
+      "triton_full_fused_cuda_graph": {
+        "total_ms": 28.324456031744678,
+        "per_token_ms": 0.11064240637400265,
+        "tokens_per_sec": 9038.125911865265
+      },
+      "speedups": {
+        "vs_pytorch": {
+          "triton": 1.1432876042596998,
+          "triton_fused": 1.1936838156261318,
+          "triton_fused_cuda_graph": 4.9420598094221475,
+          "triton_full_fused": 5.301623182689377,
+          "triton_full_fused_cuda_graph": 9.927546723705511
+        }
+      }
+    },
+    "8": {
+      "pytorch": {
+        "total_ms": 287.53417870029807,
+        "per_token_ms": 1.1231803855480393,
+        "tokens_per_sec": 890.3289381358496
+      },
+      "compile": null,
+      "compile_cuda_graph": null,
+      "triton": {
+        "total_ms": 243.35113866254687,
+        "per_token_ms": 0.9505903854005737,
+        "tokens_per_sec": 1051.9778185833484
+      },
+      "triton_fused": {
+        "total_ms": 237.33040667138994,
+        "per_token_ms": 0.9270719010601169,
+        "tokens_per_sec": 1078.6649868866577
+      },
+      "triton_fused_cuda_graph": {
+        "total_ms": 48.16252815847596,
+        "per_token_ms": 0.1881348756190467,
+        "tokens_per_sec": 5315.335589478341
+      },
+      "triton_full_fused": {
+        "total_ms": 52.55041799197594,
+        "per_token_ms": 0.20527507028115602,
+        "tokens_per_sec": 4871.512155033463
+      },
+      "triton_full_fused_cuda_graph": {
+        "total_ms": 24.632210610434413,
+        "per_token_ms": 0.09621957269700943,
+        "tokens_per_sec": 10392.895873160334
+      },
+      "speedups": {
+        "vs_pytorch": {
+          "triton": 1.1815608518644307,
+          "triton_fused": 1.2115353558485271,
+          "triton_fused_cuda_graph": 5.970080676707498,
+          "triton_full_fused": 5.471586900492445,
+          "triton_full_fused_cuda_graph": 11.673096793776851
+        }
+      }
+    },
+    "32": {
+      "pytorch": {
+        "total_ms": 340.4831918887794,
+        "per_token_ms": 1.3300124683155445,
+        "tokens_per_sec": 751.8726506876255
+      },
+      "compile": null,
+      "compile_cuda_graph": null,
+      "triton": {
+        "total_ms": 248.17680924509963,
+        "per_token_ms": 0.9694406611136704,
+        "tokens_per_sec": 1031.5226502375335
+      },
+      "triton_fused": {
+        "total_ms": 243.4647233070185,
+        "per_token_ms": 0.951034075418041,
+        "tokens_per_sec": 1051.4870348472375
+      },
+      "triton_fused_cuda_graph": {
+        "total_ms": 60.110609124725066,
+        "per_token_ms": 0.2348070668934573,
+        "tokens_per_sec": 4258.815602231196
+      },
+      "triton_full_fused": {
+        "total_ms": 63.034315671150885,
+        "per_token_ms": 0.24622779559043315,
+        "tokens_per_sec": 4061.279911969669
+      },
+      "triton_full_fused_cuda_graph": {
+        "total_ms": 64.00172862534721,
+        "per_token_ms": 0.25000675244276255,
+        "tokens_per_sec": 3999.891963833831
+      },
+      "speedups": {
+        "vs_pytorch": {
+          "triton": 1.371937986165814,
+          "triton_fused": 1.3984908666189675,
+          "triton_fused_cuda_graph": 5.6642778512242655,
+          "triton_full_fused": 5.401552920239117,
+          "triton_full_fused_cuda_graph": 5.319906183814145
+        }
+      }
+    }
+  }
+}

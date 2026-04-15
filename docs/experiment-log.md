@@ -117,8 +117,93 @@ All MVP milestones completed. See:
 
 ---
 
+## P0+P1 Phase (2026-04-15)
+
+### P0: Autoregressive Benchmark ✅
+
+添加 8-way AR 解码 benchmark 到 `run_bench_extended.py`。测量 256-token 连续解码的 per-token 延迟。
+
+**关键发现**：AR 加速比与单步加速比一致，证明 kernel launch overhead 是主导因素。
+
+| Mode | BS=1 AR Speedup (Full+Graph) | 单步 Speedup |
+|------|------------------------------|-------------|
+| SISO d_model=256 | 14.8x | ~14x |
+| MIMO d_model=256 | 12.9x | ~13x |
+
+**Bug 修复**：`torch.compile` 的 CUDAGraphTrees 与 explicit CUDA Graph 冲突 → AR benchmark 跳过 compile 后端。
+
+### P1: Multi-step Accuracy Drift ✅
+
+新建 `test_accuracy_drift.py`，1000 步 decode 比较 Triton vs PyTorch 的累积误差。
+
+**结果**：所有后端在 1000 步后累积误差 < 1.3e-4，数值稳定性良好。
+
+---
+
+## P2: d_model=512 8-way Ablation (2026-04-15)
+
+**配置**: d_model=512, d_state=128, headdim=32, A100-PCIE-40GB
+
+### SISO (d_model=512, d_state=128)
+
+| BS | PyTorch | compile | Triton | Fused | Fused+Graph | **Full Fused** | **Full+Graph** | Best Speedup |
+|----|---------|---------|--------|-------|-------------|----------------|----------------|--------------|
+| 1 | 1.29 ms | 0.44 ms (2.9x) | 0.95 ms | 0.92 ms | 0.24 ms | 0.21 ms (6.1x) | **0.15 ms** | **8.4x** |
+| 8 | 1.24 ms | 0.49 ms (2.5x) | 0.95 ms | 0.93 ms | 0.26 ms | 0.21 ms (5.9x) | **0.18 ms** | **7.0x** |
+| 32 | 1.71 ms | 0.88 ms (1.9x) | 0.98 ms | 0.95 ms | 0.22 ms | 0.25 ms (6.9x) | **0.25 ms** | **7.7x** |
+
+> BS=128 OOM (SISO state = B×H×P×D = 128×16×32×128 = 8M floats × 3 states)
+
+### MIMO (d_model=512, d_state=128, R=4)
+
+| BS | PyTorch | compile | Triton | Fused | Fused+Graph | **Full Fused** | **Full+Graph** | Best Speedup |
+|----|---------|---------|--------|-------|-------------|----------------|----------------|--------------|
+| 1 | 1.27 ms | 0.54 ms (2.3x) | 0.95 ms | 0.92 ms | **0.32 ms** (4.0x) | 0.35 ms (3.6x) | 0.35 ms (3.6x) | **4.0x** |
+| 8 | 1.47 ms | 0.67 ms (2.2x) | 0.96 ms | 0.94 ms | **0.25 ms** (5.8x) | 0.35 ms (4.2x) | 0.36 ms (4.1x) | **5.8x** |
+| 32 | 1.45 ms | 0.60 ms (2.4x) | 0.99 ms | 0.96 ms | **0.18 ms** (8.1x) | 0.53 ms (2.8x) | 0.53 ms (2.8x) | **8.1x** |
+| 128 | 1.53 ms | 0.74 ms (2.1x) | 0.98 ms | 0.96 ms | **0.34 ms** (4.4x) | 1.84 ms (0.8x) ⚠️ | 1.84 ms (0.8x) ⚠️ | **4.4x** |
+
+### Autoregressive Speedup (d_model=512, 256 tokens)
+
+#### SISO
+
+| BS | PyTorch | Triton | Fused | Fused+Graph | Full Fused | Full+Graph |
+|----|---------|--------|-------|-------------|------------|------------|
+| 1 | 1.10 ms/tok | 1.14x | 1.19x | 4.94x | 5.30x | **9.93x** |
+| 8 | 1.12 ms/tok | 1.18x | 1.21x | 5.97x | 5.47x | **11.67x** |
+| 32 | 1.33 ms/tok | 1.37x | 1.40x | 5.66x | 5.40x | **5.32x** |
+
+#### MIMO
+
+| BS | PyTorch | Triton | Fused | Fused+Graph | Full Fused | Full+Graph |
+|----|---------|--------|-------|-------------|------------|------------|
+| 1 | 1.17 ms/tok | 1.20x | 1.29x | **9.32x** | 6.06x | 7.85x |
+| 8 | 1.33 ms/tok | 1.37x | 1.45x | **5.94x** | 5.15x | 6.82x |
+| 32 | 1.37 ms/tok | 1.42x | 1.47x | **6.10x** | 2.39x | 2.60x |
+| 128 | 1.39 ms/tok | 1.43x | 1.49x | **4.03x** | 0.76x ⚠️ | 0.75x ⚠️ |
+
+### 关键发现
+
+1. **Full fused kernel 在大模型 (d_model=512) 大 batch (BS≥32 MIMO) 下性能退化**：
+   - MIMO BS=128: full fused 仅 0.83x (比 eager 还慢！)
+   - 原因：d_model=512 → d_inner=1024 → nheads=32, d_state=128, R=4 → kernel 内需要加载 4×(B_raw+C_raw) 各 128 元素 + 4×(B_bias+C_bias) + 4×(B_exp+C_exp) + mimo_x/mimo_o → **寄存器溢出 (register spillover)**
+
+2. **Fused+Graph 在大模型下反而更优**：
+   - MIMO BS=1: fused+Graph 4.0x > full+Graph 3.6x
+   - MIMO BS=32: fused+Graph 8.1x >> full+Graph 2.8x
+   - Fused kernel 只融合 SSM+silu gate，寄存器占用小，不会溢出
+
+3. **SISO full fused 仍然高效**：SISO 没有寄存器溢出问题，因为不需要同时持有 R=4 组 B/C/RoPE
+
+4. **最佳配置取决于模型大小**：
+   - d_model=256: Full+Graph 最优 (14-19x)
+   - d_model=512 MIMO: Fused+Graph 最优 (4-8x)
+   - d_model=512 SISO: Full+Graph 仍然最优 (7-12x)
+
+---
+
 ## 下一步建议
 
-1. **MIMO BS=128 kernel 优化**: 调整 BLOCK_D 或 split K 以提高 compute-bound 场景性能
-2. **P1-5 精度累积**: 跑 1000-step decode，对比 Triton vs PyTorch 的 hidden state drift
-3. **fp16/bf16 中间变量**: 减少寄存器压力，可能提升大 batch 性能
+1. **MIMO full fused kernel 寄存器优化**: d_model≥512 时 register spillover → 考虑 split-k 或减少 in-kernel 中间变量
+2. **fp16/bf16 中间变量**: 减少寄存器压力，可能提升大 batch 性能
+3. **自适应 backend 选择**: 根据模型大小和 batch size 自动选择 fused vs full-fused
