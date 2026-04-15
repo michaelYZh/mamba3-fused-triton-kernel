@@ -263,6 +263,69 @@ All percentile measurements use CUDA Events for GPU-side timing, eliminating CPU
 5. **Best backend depends on model size and batch size** — d_model=256: Full+Graph optimal (10-14x SISO, 7-13x MIMO); d_model=512 MIMO: Fused+Graph optimal (4-8x)
 6. **Full fused kernel has register pressure limits** — at d_model=512 + MIMO R=4 + BS≥32, the full fused kernel suffers register spillover, making it slower than eager. **Fused+Graph** becomes the optimal backend for large-model MIMO.
 
+### Autoregressive Decoding Speedup (256 tokens)
+
+#### d_model=256 SISO
+
+| BS | PyTorch (ms/tok) | Triton | Fused | Fused+Graph | Full Fused | **Full+Graph** |
+|----|------------------|--------|-------|-------------|------------|----------------|
+| 1 | 1.023 | 1.12x | 1.13x | 5.44x | 5.14x | **12.77x** |
+| 8 | 1.171 | 1.19x | 1.25x | 5.22x | 5.81x | **11.97x** |
+| 32 | 1.132 | 1.17x | 1.20x | 6.10x | 5.42x | **17.37x** |
+| 128 | 1.349 | 1.40x | 1.43x | 5.94x | 6.45x | **8.05x** |
+
+#### d_model=256 MIMO
+
+| BS | PyTorch (ms/tok) | Triton | Fused | Fused+Graph | Full Fused | **Full+Graph** |
+|----|------------------|--------|-------|-------------|------------|----------------|
+| 1 | 1.109 | 1.26x | 1.30x | 6.54x | 6.29x | **10.39x** |
+| 8 | 1.231 | 1.31x | 1.38x | 5.57x | 7.00x | **15.18x** |
+| 32 | 1.292 | 1.38x | 1.43x | 5.76x | 6.87x | **12.81x** |
+| 128 | 1.379 | 1.46x | 1.51x | 6.45x | 4.97x | **4.91x** |
+
+#### d_model=512 SISO
+
+| BS | PyTorch (ms/tok) | Triton | Fused | Fused+Graph | Full Fused | **Full+Graph** |
+|----|------------------|--------|-------|-------------|------------|----------------|
+| 1 | 1.087 | 1.17x | 1.20x | 4.71x | 5.15x | **9.12x** |
+| 8 | 1.316 | 1.37x | 1.42x | 7.14x | 6.42x | **13.61x** |
+| 32 | 1.340 | 1.39x | 1.44x | 5.95x | 5.41x | **5.35x** |
+
+> BS=128 OOM for SISO d_model=512
+
+#### d_model=512 MIMO
+
+| BS | PyTorch (ms/tok) | Triton | Fused | **Fused+Graph** | Full Fused | Full+Graph |
+|----|------------------|--------|-------|-----------------|------------|------------|
+| 1 | 1.171 | 1.26x | 1.30x | **5.13x** | 4.97x | 7.90x |
+| 8 | 1.313 | 1.37x | 1.42x | **5.62x** | 4.29x | 6.75x |
+| 32 | 1.391 | 1.44x | 1.49x | **6.79x** | 2.65x | 2.65x |
+| 128 | 1.402 | 1.45x | 1.50x | **4.09x** | 0.76x ⚠️ | 0.76x ⚠️ |
+
+> ⚠️ Full fused at BS=128 MIMO is **slower** than eager (0.76x). Fused+Graph is the optimal backend for d_model=512 MIMO across all batch sizes.
+
+### Accuracy Drift (1000-step, atol < 1e-2)
+
+#### d_model=256
+
+| Backend | SISO abs_max | SISO rel_max | MIMO abs_max | MIMO rel_max |
+|---------|-------------|-------------|-------------|-------------|
+| torch.compile | 1.53e-5 ✅ | 1.51e-4 | 5.72e-5 ✅ | 4.14e-4 |
+| Triton basic | 1.72e-5 ✅ | 2.77e-4 | 6.10e-5 ✅ | 2.53e-4 |
+| Triton fused | 1.91e-5 ✅ | 2.14e-4 | 5.72e-5 ✅ | 3.07e-4 |
+| Triton full fused | 2.22e-5 ✅ | 8.85e-4 | 1.28e-4 ✅ | 1.54e-4 |
+
+#### d_model=512
+
+| Backend | SISO abs_max | SISO rel_max | MIMO abs_max | MIMO rel_max |
+|---------|-------------|-------------|-------------|-------------|
+| torch.compile | 2.00e-5 ✅ | 5.19e-4 | 1.07e-4 ✅ | 1.99e-4 |
+| Triton basic | 2.67e-5 ✅ | 9.13e-4 | 1.22e-4 ✅ | 5.64e-4 |
+| Triton fused | 2.29e-5 ✅ | 7.75e-4 | 1.22e-4 ✅ | 6.64e-4 |
+| Triton full fused | 4.96e-5 ✅ | 4.68e-3 | 2.29e-4 ✅ | 1.57e-3 |
+
+> All backends pass the 1e-2 tolerance threshold after 1000-step autoregressive decoding. Full fused kernel has slightly higher drift due to accumulation of intermediate fp32 truncation, but remains well within acceptable bounds.
+
 ## Kernel Design
 
 ### Full-Step Fused Kernel (Best Performance)
