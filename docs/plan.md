@@ -281,11 +281,11 @@ def mamba3_decoding_kernel(
 
 **Deliverable**: Complete project + benchmark report + demo
 
-### Day 6-7 (Weekend Buffer)
+### Day 6-7 (Weekend Buffer) ✅
 
-- [ ] Edge cases (different D values, head counts)
-- [ ] Optional: partial prefill kernel fusion
-- [ ] Prepare presentation
+- [x] Edge cases (different D values, head counts)
+- [ ] Optional: partial prefill kernel fusion *(future)*
+- [ ] Prepare presentation *(future)*
 
 ---
 

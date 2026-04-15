@@ -26,14 +26,14 @@ from src.kernels.utils import apply_rope
 class RMSNorm(nn.Module):
     """Root Mean Square Layer Normalization."""
 
-    def __init__(self, d: int, eps: float = 1e-5):
+    def __init__(self, d: int, eps: float = 1e-5, device=None, dtype=None):
         super().__init__()
         self.eps = eps
-        self.weight = nn.Parameter(torch.ones(d))
+        self.weight = nn.Parameter(torch.ones(d, device=device, dtype=dtype))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         rms = x.float().pow(2).mean(dim=-1, keepdim=True).add(self.eps).sqrt()
-        return (x.float() / rms * self.weight).to(x.dtype)
+        return (x.float() / rms * self.weight.to(x.device)).to(x.dtype)
 
 
 class Mamba3(nn.Module):
@@ -116,7 +116,7 @@ class Mamba3(nn.Module):
 
         # dt bias
         _dt = torch.exp(
-            torch.rand(self.nheads, dtype=torch.float32)
+            torch.rand(self.nheads, **factory_kwargs)
             * (math.log(dt_max) - math.log(dt_min))
             + math.log(dt_min)
         ).clamp(min=dt_init_floor)
@@ -126,17 +126,17 @@ class Mamba3(nn.Module):
 
         # B and C biases
         self.B_bias = nn.Parameter(
-            torch.ones(self.nheads, self.mimo_rank, d_state, dtype=torch.float32)
+            torch.ones(self.nheads, self.mimo_rank, d_state, **factory_kwargs)
         )
         self.C_bias = nn.Parameter(
-            torch.ones(self.nheads, self.mimo_rank, d_state, dtype=torch.float32)
+            torch.ones(self.nheads, self.mimo_rank, d_state, **factory_kwargs)
         )
         self.B_bias._no_weight_decay = True
         self.C_bias._no_weight_decay = True
 
         # RMS norms for B and C
-        self.B_norm = RMSNorm(d_state)
-        self.C_norm = RMSNorm(d_state)
+        self.B_norm = RMSNorm(d_state, **factory_kwargs)
+        self.C_norm = RMSNorm(d_state, **factory_kwargs)
 
         # MIMO projection matrices
         if self.is_mimo:

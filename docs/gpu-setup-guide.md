@@ -193,13 +193,13 @@ git add -A && git commit && git push
 - [ ] 更大模型 (d_model=2048) 的 benchmark
 - [ ] Prefill kernel fusion
 
-### 5.3 实际达成
+### 5.3 MVP 实际达成
 
-| 指标 | MVP 目标 | 实际结果 |
-|------|---------|---------|
-| **正确性** | vs PyTorch atol < 1e-2 | atol < 1e-3 |
-| **单步延迟 (batch=1)** | 比 Python 快 1.5x | Triton 1.25x, CUDA Graph **5.86x** |
-| **端到端 decode (seq=1K)** | 比 Python 快 1.3x | Triton 1.31x, CUDA Graph **8.00x** |
+| 指标 | MVP 目标 | 实际结果 | 状态 |
+|------|---------|---------|------|
+| **正确性** | vs PyTorch atol < 1e-2 | atol < 1e-3 | ✅ 超出目标 |
+| **单步延迟 (batch=1)** | 比 Python 快 1.5x | Triton 1.25x, CUDA Graph **5.86x** | ✅ 超出目标 |
+| **端到端 decode (seq=1K)** | 比 Python 快 1.3x | Triton 1.31x, CUDA Graph **8.00x** | ✅ 超出目标 |
 
 ---
 
