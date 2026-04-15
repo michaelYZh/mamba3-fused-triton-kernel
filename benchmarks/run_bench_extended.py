@@ -48,14 +48,37 @@ def benchmark_single_step(fn, args, n_iters=100):
 
 
 def benchmark_latency_percentiles(fn, args, n_iters=200):
-    """Benchmark single decoding step and return P50/P95/P99 latency."""
+    """Benchmark single decoding step and return P50/P95/P99 latency.
+
+    Uses CUDA Events for GPU-side timing to avoid CPU-GPU synchronization
+    overhead polluting measurements for low-latency kernels (e.g. BS=1).
+    Falls back to CPU timing if CUDA is not available.
+    """
+    use_cuda_events = torch.cuda.is_available()
     times = []
-    for _ in range(n_iters):
-        torch.cuda.synchronize()
-        t0 = time.perf_counter()
+
+    if use_cuda_events:
+        # Warmup once before measurement
         fn(*args)
         torch.cuda.synchronize()
-        times.append((time.perf_counter() - t0) * 1000)
+
+        for _ in range(n_iters):
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+            start_event.record()
+            fn(*args)
+            end_event.record()
+            torch.cuda.synchronize()
+            elapsed_ms = start_event.elapsed_time(end_event)
+            times.append(elapsed_ms)
+    else:
+        for _ in range(n_iters):
+            torch.cuda.synchronize()
+            t0 = time.perf_counter()
+            fn(*args)
+            torch.cuda.synchronize()
+            times.append((time.perf_counter() - t0) * 1000)
+
     times.sort()
     return {
         "mean_ms": float(np.mean(times)),

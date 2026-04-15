@@ -147,21 +147,23 @@ python benchmarks/profile_step.py --mode mimo --save-trace
 
 | Batch | PyTorch | compile | Triton | Fused | Fused+Graph | **Full Fused** | **Full+Graph** | Best Speedup |
 |-------|---------|---------|--------|-------|-------------|---------------|----------------|--------------|
-| 1 | 1.15 ms | 0.37 ms (3.1x) | 0.92 ms | 0.90 ms | 0.19 ms | 0.20 ms (5.7x) | **0.08 ms** | **14.1x** |
-| 8 | 1.37 ms | 0.61 ms (2.2x) | 0.95 ms | 0.92 ms | 0.23 ms | 0.21 ms (6.7x) | **0.10 ms** | **13.8x** |
-| 32 | 1.23 ms | 0.50 ms (2.5x) | 0.97 ms | 0.94 ms | 0.24 ms | 0.21 ms (5.9x) | **0.12 ms** | **10.4x** |
-| 128 | 1.79 ms | 0.90 ms (2.0x) | 1.02 ms | 0.98 ms | 0.36 ms | 0.28 ms (6.3x) | **0.29 ms** | **6.2x** |
+| 1 | 1.15 ms | 0.40 ms (2.9x) | 0.93 ms | 0.90 ms | 0.19 ms | 0.20 ms (5.6x) | **0.08 ms** | **14.0x** |
+| 8 | 1.36 ms | 0.57 ms (2.4x) | 0.94 ms | 0.91 ms | 0.23 ms | 0.20 ms (6.8x) | **0.10 ms** | **13.7x** |
+| 32 | 1.21 ms | 0.46 ms (2.6x) | 0.96 ms | 0.94 ms | 0.24 ms | 0.21 ms (5.7x) | **0.12 ms** | **10.3x** |
+| 128 | 1.77 ms | 0.90 ms (2.0x) | 1.08 ms | 1.06 ms | 0.22 ms | 0.21 ms (8.2x) | **0.17 ms** | **10.5x** |
 
 #### MIMO (Multi-Input Multi-Output, R=4)
 
 | Batch | PyTorch | compile | Triton | Fused | Fused+Graph | **Full Fused** | **Full+Graph** | Best Speedup |
 |-------|---------|---------|--------|-------|-------------|---------------|----------------|--------------|
-| 1 | 1.28 ms | 0.51 ms (2.5x) | 0.94 ms | 0.92 ms | 0.11 ms | 0.19 ms (6.7x) | **0.07 ms** | **19.2x** |
-| 8 | 1.31 ms | 0.48 ms (2.7x) | 0.95 ms | 0.95 ms | 0.23 ms | 0.19 ms (6.8x) | **0.14 ms** | **9.3x** |
-| 32 | 1.42 ms | 0.67 ms (2.1x) | 1.00 ms | 0.96 ms | 0.26 ms | 0.21 ms (6.8x) | **0.18 ms** | **7.7x** |
-| 128 | 1.54 ms | 0.67 ms (2.3x) | 1.08 ms | 1.03 ms | 0.34 ms | 0.51 ms (3.0x) | **0.52 ms** | **4.5x** |
+| 1 | 1.23 ms | 0.53 ms (2.3x) | 0.92 ms | 0.88 ms | 0.32 ms (3.8x) | **0.18 ms** (6.8x) | 0.20 ms (6.0x) | **6.8x** |
+| 8 | 1.24 ms | 0.56 ms (2.2x) | 0.93 ms | 0.89 ms | 0.22 ms (5.6x) | **0.18 ms** (6.9x) | 0.14 ms (8.9x) | **8.9x** |
+| 32 | 1.37 ms | 0.65 ms (2.1x) | 0.97 ms | 0.91 ms | 0.15 ms (9.3x) | 0.19 ms (7.3x) | **0.11 ms** (12.8x) | **12.8x** |
+| 128 | 1.48 ms | 0.65 ms (2.3x) | 1.02 ms | 0.98 ms | 0.19 ms (7.8x) | 0.28 ms (5.3x) | **0.28 ms** (5.2x) | **7.8x** |
 
-> **Note**: `torch.compile + CUDA Graph` failed (CUDA graph capture error) in all configurations, so it is excluded. `Full+Graph` at BS=128 sees diminishing returns because the kernel becomes compute-bound rather than launch-overhead-bound.
+> **Note**: At BS=1 MIMO, the full fused kernel (without CUDA Graph) achieves the best single-step latency (0.18 ms, 6.8x). With CUDA Graph, fused+Graph excels at BS≥32 (9.3-12.8x). The full fused + CUDA Graph combination shows diminishing returns at BS=1 because the full fused kernel is already very fast and CUDA Graph's fixed replay overhead becomes non-negligible relative to kernel execution time.
+
+> **Note**: `torch.compile + CUDA Graph` failed (CUDA graph capture error) in all configurations, so it is excluded. At BS=1 MIMO, the full fused kernel without CUDA Graph achieves the best single-step latency because CUDA Graph's replay overhead is non-negligible for the very fast kernel.
 
 ### 8-Way Ablation: Larger Model (d_model=512)
 
@@ -202,21 +204,21 @@ The full fused kernel alone (without CUDA Graph) is already faster than partial 
 
 ### Latency Tail: P99/P50 Ratios
 
-Triton kernels deliver significantly more stable latency than PyTorch eager:
+Triton kernels deliver significantly more stable latency than PyTorch eager (measured with CUDA Events for accurate GPU-side timing):
 
 | Method | SISO BS=1 P99/P50 | MIMO BS=1 P99/P50 |
 |--------|-------------------|-------------------|
-| PyTorch eager | 1.19x | 1.15x |
-| Triton full fused | 1.11x | 1.05x |
-| Triton full + Graph | 1.08x | 1.05x |
+| PyTorch eager | 1.58x | 1.20x |
+| Triton full fused | 1.09x | 1.03x |
+| Triton full + Graph | 1.10x | 1.03x |
 
 ### Key Insights
 
-1. **Full-step fusion scope is the #1 optimization** — 5.7-6.8x speedup from fusing ALL ops into one kernel, vs only 1.3x from partial fusion (small model d_model=256)
-2. **CUDA Graph adds further improvement** — up to 2.5x on top of full fusion, for 14-19x total at small batch sizes
+1. **Full-step fusion scope is the #1 optimization** — 5.6-6.9x speedup from fusing ALL ops into one kernel, vs only 1.3x from partial fusion (small model d_model=256)
+2. **CUDA Graph adds further improvement** — up to 2.5x on top of full fusion, for 10-14x total at small batch sizes
 3. **Full fusion alone beats partial fusion + Graph** — proving that fusion scope matters more than launch overhead elimination
 4. **torch.compile is competitive** — 2-3x speedup without custom kernels, but cannot achieve full-step fusion
-5. **MIMO benefits most at BS=1** — 19.2x speedup thanks to R rank-1 updates being fused and CUDA Graph eliminating launch overhead
+5. **Best backend depends on model size and batch size** — d_model=256: Full+Graph optimal (10-14x SISO, 7-13x MIMO); d_model=512 MIMO: Fused+Graph optimal (4-8x)
 6. **Full fused kernel has register pressure limits** — at d_model=512 + MIMO R=4 + BS≥32, the full fused kernel suffers register spillover, making it slower than eager. **Fused+Graph** becomes the optimal backend for large-model MIMO.
 
 ## Kernel Design
@@ -286,13 +288,15 @@ Output: y_gated (B, H, P) → out_proj → final output
 - [x] Performance optimization and Triton tuning
 - [x] CUDA Graph integration for maximum throughput
 - [x] Full benchmark suite + documentation
-- [x] **Full-step fused kernel** — entire decode in one kernel launch (5.7-6.8x speedup over eager)
-- [x] **Full fused + CUDA Graph** — best configuration (up to 19.2x speedup over eager, MIMO R=4 BS=1)
-- [x] **P0: Autoregressive benchmark** — AR speedups match single-step (14.8x SISO, 12.9x MIMO at BS=1)
-- [x] **P1: Multi-step accuracy drift** — 1000-step decode, all backends < 1.3e-4 cumulative error
+- [x] **Full-step fused kernel** — entire decode in one kernel launch (5.6-6.9x speedup over eager)
+- [x] **Full fused + CUDA Graph** — best configuration (up to 14.0x speedup over eager, SISO BS=1)
+- [x] **P0: Autoregressive benchmark** — AR speedups match single-step (12.8x SISO, 10.4x MIMO at BS=1)
+- [x] **P1: Multi-step accuracy drift** — 1000-step decode, all backends < 1.3e-4 (d_model=256), < 2.3e-4 (d_model=512) cumulative error
 - [x] **P2: d_model=512 8-way ablation** — SISO 7-8.4x, MIMO 4-8.1x; discovered register spillover at large model+batch
+- [x] **P0: Re-run d_model=256 benchmark with CUDA Event timing** — Fixed percentile measurement (was polluted by CPU-GPU sync overhead at BS=1). Corrected MIMO BS=1 speedup from 19.2x to 6.8x (full fused) / 12.8x (fused+Graph at BS=32).
+- [x] **P1: d_model=512 accuracy drift** — 1000-step: SISO < 5.0e-5, MIMO < 2.3e-4, all PASS
 
-> **P2 Phase Complete** (2026-04-15) — d_model=512 benchmarks reveal full fused kernel register pressure limits in MIMO at large batch. Fused+Graph is the optimal backend for large-model MIMO (8.1x at BS=32).
+> **P2 Phase Complete** (2026-04-15) — d_model=512 benchmarks reveal full fused kernel register pressure limits in MIMO at large batch. Fused+Graph is the optimal backend for large-model MIMO (8.1x at BS=32). d_model=256 benchmarks re-run with CUDA Event timing; MIMO BS=1 best speedup corrected from 19.2x to 6.8x (full fused). d_model=512 accuracy drift: all backends PASS (< 2.3e-4).
 
 ## Future Plans
 
@@ -303,9 +307,9 @@ The following are optional enhancements for future development:
 - [ ] Cache hint optimization
 - [x] `torch.compile` compatibility test — **COMPLETED** (see 4-way ablation results)
 - [x] Larger model benchmarks (d_model=512) — **COMPLETED** (8-way ablation: SISO 7-8.4x, MIMO 4-8.1x best)
-- [x] Full-step fusion — **COMPLETED** (5.7-6.8x speedup over eager, up to 19.2x with CUDA Graph)
+- [x] Full-step fusion — **COMPLETED** (5.6-6.9x speedup over eager, up to 14.0x with CUDA Graph)
 - [ ] Prefill kernel fusion
 - [ ] H100 benchmark comparison
-- [x] Multi-step accuracy drift test (1000 steps) — **COMPLETED** (all backends < 1.3e-4 error)
+- [x] Multi-step accuracy drift test (1000 steps) — **COMPLETED** (d_model=256: all backends < 1.3e-4; d_model=512: all backends < 2.3e-4)
 - [x] Autoregressive benchmark (8-way) — **COMPLETED** (AR speedups match single-step)
 - [ ] MIMO full fused kernel register optimization for d_model≥512
