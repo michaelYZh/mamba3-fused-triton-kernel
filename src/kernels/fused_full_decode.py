@@ -97,13 +97,11 @@ def _siso_full_fused_kernel(
     trap_raw_val = tl.load(zxBCdtAtrap_ptr + zx_base + offset_trap_raw * stride_zx_d)
 
     # ── Compute A, DT, ADT, trap ──────────────────────────────────────────
-    # Match reference: A = -(softplus(dd_A).clamp(max=-A_floor))
-    # Note: softplus is always positive, so clamp(max=-A_floor) always triggers,
-    # resulting in A = -(-A_floor) = A_floor (a small positive value).
-    # This is technically a bug in the reference code (operator precedence),
-    # but we match it for numerical consistency.
+    # Match Mamba3._compute_params: A = (-softplus(dd_A)).clamp(max=-A_floor),
+    # so A <= -A_floor < 0. DT > 0, so ADT < 0 and decay = exp(ADT) < 1.
+    # NaN < A_floor is false, so a NaN softplus stays NaN, as with torch.clamp.
     sp_A = _softplus(dd_A_val)
-    A_val = -tl.where(sp_A > -A_floor, -A_floor, sp_A)
+    A_val = -tl.where(sp_A < A_floor, A_floor, sp_A)
     dt_bias_val = tl.load(dt_bias_ptr + h * stride_dt_h)
     DT_val = _softplus(dd_dt_val + dt_bias_val)
     ADT_val = A_val * DT_val
@@ -359,8 +357,9 @@ def _mimo_full_fused_kernel_R4(
     dd_A_val = tl.load(zxBCdtAtrap_ptr + zx_base + offset_dd_A * stride_zx_d)
     trap_raw_val = tl.load(zxBCdtAtrap_ptr + zx_base + offset_trap_raw * stride_zx_d)
 
+    # A = (-softplus(dd_A)).clamp(max=-A_floor) <= -A_floor, as in the SISO kernel
     sp_A = _softplus(dd_A_val)
-    A_val = -tl.where(sp_A > -A_floor, -A_floor, sp_A)
+    A_val = -tl.where(sp_A < A_floor, A_floor, sp_A)
     dt_bias_val = tl.load(dt_bias_ptr + h * stride_dt_h)
     DT_val = _softplus(dd_dt_val + dt_bias_val)
     ADT_val = A_val * DT_val

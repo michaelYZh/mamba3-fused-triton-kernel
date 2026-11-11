@@ -193,7 +193,7 @@ class Mamba3(nn.Module):
             C_raw = rearrange(C_raw, "b (r g n) -> b r g n",
                               r=self.mimo_rank, g=self.num_bc_heads)
 
-        A = -F.softplus(dd_A.float()).clamp(max=-self.A_floor)
+        A = (-F.softplus(dd_A.float())).clamp(max=-self.A_floor)  # negative, <= -A_floor
         DT = F.softplus(dd_dt.float() + self.dt_bias)
         ADT = A * DT
         trap = torch.sigmoid(trap_raw.float())

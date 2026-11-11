@@ -12,9 +12,9 @@ Accelerate Mamba-3 inference by replacing Python-based decoding with a fused Tri
 | **MIMO Fused+Silu Kernel** | `src/kernels/mimo_decode_fused.py` | MIMO decode + silu gate fusion in one kernel |
 | **Full-Step Fused Kernel** | `src/kernels/fused_full_decode.py` | **All decode ops between `in_proj` and `out_proj` in one kernel**: split → rearrange → softplus → sigmoid → RMSNorm → RoPE → SSM → silu |
 | **Shared Utilities** | `src/kernels/utils.py` | RoPE, trapezoidal blending, PyTorch reference implementations |
-| **Mamba3 Model** | `src/models/mamba3.py` | `Mamba3` layer with training forward + single-step decode, plus a multi-layer `MambaLMHeadModel` wrapper (forward only). Adapted from [rishikksh20/mamba3-pytorch](https://github.com/rishikksh20/mamba3-pytorch). The decay `A` is the constant `+A_floor` in both `forward` and `step` (see [Known behavior](#known-behavior-the-decay-is-constant)) |
+| **Mamba3 Model** | `src/models/mamba3.py` | `Mamba3` layer with training forward + single-step decode, plus a multi-layer `MambaLMHeadModel` wrapper (forward only). Adapted from [rishikksh20/mamba3-pytorch](https://github.com/rishikksh20/mamba3-pytorch). `forward` and `step` compute the decay rate `A = (-softplus(dd_A)).clamp(max=-A_floor)`, as upstream `forward()` does. Before the fix, `A` was the constant `+A_floor` (see [Decay sign fix](#decay-sign-fix)) |
 | **Inference Interface** | `src/models/inference.py` | `Mamba3Decoder` with Triton/PyTorch backend + CUDA Graph support |
-| **Tests** | `src/tests/` | Correctness tests against the PyTorch reference. The SISO and MIMO kernel tests assert max abs error < 1e-2 against the reference. `test_full_fused.py` prints a verdict but does not assert (see [Running Tests](#running-tests)) |
+| **Tests** | `src/tests/` | Correctness tests against the PyTorch reference. The SISO and MIMO kernel tests assert max abs error < 1e-2 against the reference. `test_full_fused.py` prints a verdict but does not assert (see [Running Tests](#running-tests)). `test_decay_sign.py` asserts that `A ≤ -A_floor` and, on CUDA, that the full-step kernel's state decays (see [Decay sign fix](#decay-sign-fix)) |
 | **Benchmarks** | `benchmarks/run_bench_extended.py` | 7-way ablation: PyTorch / compile / Triton / fused / fused+Graph / full-fused / full+Graph. The script also lists compile+Graph but skips it (see [How These Numbers Are Measured](#how-these-numbers-are-measured)) |
 
 ## Project Structure
@@ -36,6 +36,7 @@ mamba3-fused-triton-kernel/
 │       ├── test_siso.py           # SISO kernel vs PyTorch reference
 │       ├── test_mimo.py           # MIMO kernel vs PyTorch reference
 │       ├── test_trapezoidal.py    # Trapezoidal discretization validation
+│       ├── test_decay_sign.py     # Sign of the decay rate A, state decay of the full-step kernel
 │       └── test_full_fused.py     # Full-step fused kernel correctness
 ├── benchmarks/
 │   ├── run_bench_extended.py      # 7-way ablation benchmark (primary)
@@ -113,6 +114,7 @@ pytest src/tests/ -v
 pytest src/tests/test_siso.py -v         # SISO kernel correctness
 pytest src/tests/test_mimo.py -v         # MIMO kernel correctness
 pytest src/tests/test_trapezoidal.py -v  # Trapezoidal gate behavior
+pytest src/tests/test_decay_sign.py -v -s  # Sign of A (runs on CPU), full-step kernel state decay (CUDA rows, -s prints the norm ratio)
 pytest src/tests/test_full_fused.py -v   # Full-step fused kernel (SISO only under pytest, prints a verdict, does not assert)
 
 # Full-step fused kernel with a pass/fail exit code
@@ -163,7 +165,7 @@ PYTHONPATH=. python benchmarks/profile_step.py --mode mimo --save-trace
 
 ### How These Numbers Are Measured
 
-Every measured value below comes from a file in `benchmarks/results/`. Iteration counts and tolerances come from the benchmark code. Each table names its source file and the run's `timestamp` field. Each table is one run of one configuration, so the tables have no confidence intervals. All timings are for one `Mamba3` layer (`in_proj` → decode step → `out_proj`) in fp32, not for a multi-layer model.
+Every measured value below comes from a file in `benchmarks/results/`. Iteration counts and tolerances come from the benchmark code. Each table names its source file and the run's `timestamp` field. Each table is one run of one configuration, so the tables have no confidence intervals. All timings are for one `Mamba3` layer (`in_proj` → decode step → `out_proj`) in fp32, not for a multi-layer model. All result files were produced before the [decay sign fix](#decay-sign-fix). The timings are not expected to change, but the accuracy-drift results must be re-run on a GPU.
 
 - **Backends.** *PyTorch* (eager) is the PyTorch decode step. *compile* is `torch.compile` of that step. *Triton* ("Triton basic" in the latency tables) runs the SSM recurrence in a Triton kernel and keeps the other decode ops in PyTorch. *Fused* runs the SSM recurrence and the silu gate in one Triton kernel, called the SSM+gate kernel below. *Full Fused* runs every decode op between `in_proj` and `out_proj` in one Triton kernel. *+Graph* captures the same step once in a CUDA Graph and replays it.
 - **7-way ablation tables** (`benchmark_single_step` in `benchmarks/run_bench_extended.py`): wall-clock `time.perf_counter` around 50 back-to-back calls, with `torch.cuda.synchronize()` before and after the loop. The value is the mean (loop time / 50). The loop has no synchronization between calls, so the CPU work of one call can overlap the GPU work of the previous call. The loop runs after 5 warmup calls (20 for torch.compile). CUDA Graph backends run 10 un-captured warmup steps and then capture the graph, with no replay before the timed loop. Speedup = PyTorch eager mean / backend mean.
@@ -378,6 +380,8 @@ Source: `benchmarks/results/mimo_r4_extended_20260415_061428.json` (timestamp `2
 
 `benchmarks/test_accuracy_drift.py` runs each backend for 1000 decode steps (batch 4, seed 42, fp32 model and state) and compares its output with PyTorch eager at checkpoints 1, 10, 50, 100, 200, 500, 1000. All backends get the same random input at each step. The tables give the step-1000 values: abs_max = max |out − ref| and rel_max = max (|out − ref| / (|ref| + 1e-6)). A backend passes if abs_max < 1e-2 when the run has at least 500 steps (1e-3 for shorter runs). The CUDA Graph backends are not in this test, so it does not catch the fused+Graph angle-state defect (see [CUDA Graph Integration](#cuda-graph-integration)).
 
+> ⚠️ These drift results were measured before the [decay sign fix](#decay-sign-fix), when the state did not decay. They must be re-run on a GPU. Until then, they describe the code before the fix.
+
 #### d_model=256
 
 Sources: `benchmarks/results/accuracy_drift_siso_r4_20260415_044816.json` (timestamp `2026-04-15T04:48:16`), `benchmarks/results/accuracy_drift_mimo_r4_20260415_044827.json` (timestamp `2026-04-15T04:48:27`), field `summary`.
@@ -414,7 +418,7 @@ Input: zxBCdtAtrap (B, d_in_proj) — raw output from in_proj
 [Single Triton Kernel]
   1. Split → z, x, B_raw, C_raw, dd_dt, dd_A, trap_raw, angle_raw
   2. Rearrange → z(B,H,P), x(B,H,P), B_raw(D), C_raw(D)
-  3. -(softplus(dd_A).clamp(max=-A_floor)) → A (always +A_floor, see Known behavior);
+  3. (-softplus(dd_A)).clamp(max=-A_floor) → A (A ≤ -A_floor < 0, see Decay sign fix);
      softplus(dd_dt + dt_bias) → DT
   4. sigmoid(trap_raw) → trap
   5. RMSNorm(B_raw), RMSNorm(C_raw) → B_normed, C_normed
@@ -427,14 +431,13 @@ Output: y_gated (B, H, P) → out_proj → final output
 
 **Why this matters**: The partial-fusion backends (Triton, Fused) leave the other decode ops outside the kernel, each with its own kernel launch. The profiler traces in `benchmarks/results/` (MIMO R=4, d_model=512, headdim=64, batch 4, 5 steps; headdim=64 is the `profile_step.py` default, while the benchmarks use headdim=32): eager launches 70 kernels per step and the Triton basic path 51. GPU kernels are active for only 14% of the kernel span in both traces, so the step is launch-bound. The profiler records call stacks, which adds CPU time of its own. Full-step fusion removes most of these launches (from the code; the repo has no profiler trace of the full fused path): at d_model=256 the full fused kernel is 3.5–5.0x faster than the SSM+gate kernel by single-step mean.
 
-### Known behavior: the decay is constant
+### Decay sign fix
 
-- The port computes `A = -F.softplus(dd_A.float()).clamp(max=-self.A_floor)` ([`src/models/mamba3.py` L196](src/models/mamba3.py#L196)). Python applies `.clamp` before the unary minus, so this is `A = -(softplus(dd_A).clamp(max=-A_floor))`.
-- softplus is never negative, so the clamp always returns `-A_floor`, and `A = +A_floor`, a constructor argument that defaults to 1e-4 and that every test and benchmark leaves at the default ([L78](src/models/mamba3.py#L78)). So the decay does not depend on `dd_A`. `DT = softplus(dd_dt + dt_bias)` is positive ([L197](src/models/mamba3.py#L197)), so `exp(A·DT) > 1`: each step scales the state up instead of decaying it.
-- `forward` and `step` both get `A` from `_compute_params` ([L247](src/models/mamba3.py#L247), [L321](src/models/mamba3.py#L321)). In the upstream `mamba3.py` at the pinned submodule commit `1aa707d`, only `step()` has this expression. Its `forward()` negates and clamps in two statements, which gives a negative `A`.
-- Every decode backend computes the same `A`. PyTorch eager uses `Mamba3.step`. torch.compile, Triton basic and fused compute it in [`src/models/inference.py` L225](src/models/inference.py#L225), [L331](src/models/inference.py#L331) and [L422](src/models/inference.py#L422). The full-step kernel reproduces it on purpose ([`src/kernels/fused_full_decode.py` L100–L106](src/kernels/fused_full_decode.py#L100) for SISO, [L362–L363](src/kernels/fused_full_decode.py#L362) for MIMO). The comment in the SISO kernel calls this "technically a bug in the reference code (operator precedence)".
-- So `test_full_fused.py` and `test_accuracy_drift.py` compare like with like: the reference and the backend under test compute `A` the same way ([`src/tests/test_full_fused.py` L30–L34](src/tests/test_full_fused.py#L30), [`benchmarks/test_accuracy_drift.py` L63–L67](benchmarks/test_accuracy_drift.py#L63)). `test_siso.py` and `test_mimo.py` call the Triton basic SSM kernels directly with a random negative `A_log` ([`src/tests/test_siso.py` L37](src/tests/test_siso.py#L37), [`src/tests/test_mimo.py` L38](src/tests/test_mimo.py#L38)), so only the Triton basic SSM kernels are tested with a decaying state. No test calls the SSM+gate kernels or the full-step kernel directly.
-- No branch or loop bound depends on `A`. The kernels use it only in arithmetic, for example `tl.where` and `tl.exp` ([`src/kernels/fused_full_decode.py` L106](src/kernels/fused_full_decode.py#L106), [L111](src/kernels/fused_full_decode.py#L111)). So every backend runs the same operations for any value of `A`, and the timings do not depend on this behavior.
+- **Bug.** Through commit `4a98872`, `Mamba3._compute_params` and the three `Mamba3Decoder` steps that compute `A` used `A = -F.softplus(dd_A.float()).clamp(max=-A_floor)`. Python applies `.clamp` before the unary minus, so this is `-(softplus(dd_A).clamp(max=-A_floor))`. softplus is never negative, so the clamp always returned `-A_floor`, and `A` was the constant `+A_floor`. `A` did not depend on `dd_A`, and `DT` is positive, so `exp(A·DT)` was above one: each step scaled the state up instead of decaying it. The full-step kernel copied the expression on purpose (`A_val = -tl.where(sp_A > -A_floor, -A_floor, sp_A)`). The upstream `mamba3.py` at the pinned submodule commit `1aa707d` has the expression only in `step()`. Its `forward()` negates first and then clamps, which gives a negative `A`.
+- **History.** The expression was first flagged on 2026-04-15, in a kernel comment from commit `5c016ba`. The comment called it "technically a bug in the reference code (operator precedence)", but the kernel kept it to match the PyTorch code. On 2026-11-10, commit `4a98872` recorded the constant decay in this README as known behavior.
+- **Fix** (2026-11-11). Every site now computes the `A` of upstream `forward()`, which negates before it clamps. The PyTorch code computes `A = (-F.softplus(dd_A.float())).clamp(max=-A_floor)` in `Mamba3._compute_params`, which `forward` and `step` share ([`src/models/mamba3.py` L196](src/models/mamba3.py#L196)), and in the torch.compile, Triton basic and fused decode steps ([`src/models/inference.py` L225](src/models/inference.py#L225), [L331](src/models/inference.py#L331), [L422](src/models/inference.py#L422)). The full-step kernel computes `A_val = -tl.where(sp_A < A_floor, A_floor, sp_A)`, which is `-max(softplus(dd_A), A_floor)` and keeps a NaN as NaN, as `torch.clamp` does ([`src/kernels/fused_full_decode.py` L104](src/kernels/fused_full_decode.py#L104) for SISO, [L362](src/kernels/fused_full_decode.py#L362) for MIMO). So `A ≤ -A_floor`, `A` depends on `dd_A`, and `exp(A·DT)` is below one: the state decays.
+- **All result files predate the fix.** Every JSON file in `benchmarks/results/` (timings, accuracy drift and profiler traces) was produced before this fix. No measured value in this README was changed. No branch or loop bound depends on `A`: the kernels use it only in arithmetic, for example `ADT_val = A_val * DT_val` and `tl.exp(ADT_val)` ([L107–L109](src/kernels/fused_full_decode.py#L107)). So the timings are not expected to change, but they were not re-measured. The drift tables compare each backend with PyTorch eager on a state that did not decay. These drift values must be re-run on a GPU.
+- **Tests.** All backends compute `A` the same way, before and after the fix, so `test_full_fused.py` and `test_accuracy_drift.py` still compare like with like. `test_siso.py` and `test_mimo.py` call the Triton basic SSM kernels directly with a random negative `A_log` ([`src/tests/test_siso.py` L37](src/tests/test_siso.py#L37), [`src/tests/test_mimo.py` L38](src/tests/test_mimo.py#L38)). No test calls the SSM+gate kernels or the full-step kernel directly. [`src/tests/test_decay_sign.py`](src/tests/test_decay_sign.py), added with the fix, checks the sign of the model's `A`. For SISO and MIMO, it asserts that `Mamba3._compute_params` gives `A ≤ -A_floor` and the `A` of upstream `forward()`. On CUDA, it also runs random steps and then zero-input steps through the full-step kernel. It asserts that the kernel's state stays close to the eager decoder's state and that the state norm goes down. On the code before the fix, the `_compute_params` rows fail.
 
 ### SISO Fused Kernel (Partial Fusion)
 - One Triton program per `(batch, head)` pair
@@ -483,12 +486,13 @@ Output: y_gated (B, H, P) → out_proj → final output
 - [x] **Full-step fused kernel** — all non-GEMM decode ops in one kernel launch (5.3–8.2x over eager by single-step mean at d_model=256)
 - [x] **Full fused + CUDA Graph** — 14.0x over eager by single-step mean at the best config (d_model=256 SISO BS=1)
 - [x] **P0: Autoregressive benchmark** — 256-token decode loop. BS=1 full+Graph: 12.77x SISO and 10.39x MIMO at d_model=256. AR speedups differ from single-step ones (see the AR section)
-- [x] **P1: Multi-step accuracy drift** — 1000-step decode, all four tested backends (no CUDA Graph backends) < 1.3e-4 (d_model=256) and < 2.3e-4 (d_model=512) max abs error at step 1000
+- [x] **P1: Multi-step accuracy drift** — 1000-step decode, all four tested backends (no CUDA Graph backends) < 1.3e-4 (d_model=256) and < 2.3e-4 (d_model=512) max abs error at step 1000 (measured before the decay sign fix)
 - [x] **P2: d_model=512 7-way ablation** — best backend 6.0–8.6x (SISO) and 4.6–8.3x (MIMO) by single-step mean. The full fused MIMO kernel slows down at large batch (suspected register pressure)
 - [x] **P0: Re-run d_model=256 benchmark with CUDA Event timing** — Switched the percentile pass to CUDA Events after one old-timer run (`052234`, d_model=512 MIMO) put 4 of 7 BS=1 P50 values at 2.65–2.75 ms. Other old-timer runs, including `052204` with the same config, did not show this (see Latency Tail). The earlier 19.2x figure (full+Graph, run `035152`) did not reproduce in later runs (see Run-to-run variance)
-- [x] **P1: d_model=512 accuracy drift** — 1000-step: SISO < 5.0e-5, MIMO < 2.3e-4, all four tested backends PASS
+- [x] **P1: d_model=512 accuracy drift** — 1000-step: SISO < 5.0e-5, MIMO < 2.3e-4, all four tested backends PASS (measured before the decay sign fix)
+- [ ] Re-run the accuracy drift test on a GPU after the [decay sign fix](#decay-sign-fix)
 
-> **P2 Phase Complete** (2026-04-15) — d_model=512 benchmarks show the full fused MIMO kernel slowing down at large batch. Fused+Graph is the fastest backend for d_model=512 MIMO at every batch size by single-step mean (8.3x at BS=32). In the 256-token loop, full+Graph is the fastest there at BS=1 and 8. d_model=256 percentiles were re-run with CUDA Event timing. d_model=512 accuracy drift: all four tested backends PASS (< 2.3e-4).
+> **P2 Phase Complete** (2026-04-15) — d_model=512 benchmarks show the full fused MIMO kernel slowing down at large batch. Fused+Graph is the fastest backend for d_model=512 MIMO at every batch size by single-step mean (8.3x at BS=32). In the 256-token loop, full+Graph is the fastest there at BS=1 and 8. d_model=256 percentiles were re-run with CUDA Event timing. d_model=512 accuracy drift: all four tested backends PASS (< 2.3e-4), before the decay sign fix.
 
 ## Future Plans
 
@@ -502,6 +506,6 @@ The following are optional enhancements for future development:
 - [x] Full-step fusion — **COMPLETED** (5.3–8.2x over eager at d_model=256, and 14.0x with CUDA Graph at SISO BS=1, by single-step mean)
 - [ ] Prefill kernel fusion
 - [ ] H100 benchmark comparison
-- [x] Multi-step accuracy drift test (1000 steps) — **COMPLETED** (all four tested backends < 1.3e-4 (d_model=256) and < 2.3e-4 (d_model=512))
+- [x] Multi-step accuracy drift test (1000 steps) — **COMPLETED** before the decay sign fix (all four tested backends < 1.3e-4 (d_model=256) and < 2.3e-4 (d_model=512)). Re-run pending
 - [x] Autoregressive benchmark (6-way) — **COMPLETED** (AR and single-step speedups differ; see the AR section)
 - [ ] MIMO full fused kernel register optimization for d_model≥512

@@ -222,7 +222,7 @@ class Mamba3Decoder:
         C_raw = rearrange(C_raw, "b (r g n) -> b r g n",
                           r=model.mimo_rank, g=model.num_bc_heads)
 
-        A = -F.softplus(dd_A.float()).clamp(max=-model.A_floor)
+        A = (-F.softplus(dd_A.float())).clamp(max=-model.A_floor)  # negative, <= -A_floor
         DT = F.softplus(dd_dt.float() + model.dt_bias)
         ADT = A * DT
         trap = torch.sigmoid(trap_raw.float())
@@ -328,7 +328,7 @@ class Mamba3Decoder:
                           r=model.mimo_rank, g=model.num_bc_heads)
 
         # ── Compute parameters ──────────────────────────────────────────
-        A = -F.softplus(dd_A.float()).clamp(max=-model.A_floor)
+        A = (-F.softplus(dd_A.float())).clamp(max=-model.A_floor)  # negative, <= -A_floor
         DT = F.softplus(dd_dt.float() + model.dt_bias.to(dev))
         ADT = A * DT
         trap = torch.sigmoid(trap_raw.float())
@@ -419,7 +419,7 @@ class Mamba3Decoder:
                           r=model.mimo_rank, g=model.num_bc_heads)
 
         # ── Compute parameters ──────────────────────────────────────────
-        A = -F.softplus(dd_A.float()).clamp(max=-model.A_floor)
+        A = (-F.softplus(dd_A.float())).clamp(max=-model.A_floor)  # negative, <= -A_floor
         DT = F.softplus(dd_dt.float() + model.dt_bias.to(dev))
         ADT = A * DT
         trap = torch.sigmoid(trap_raw.float())

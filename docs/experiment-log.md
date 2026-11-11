@@ -140,6 +140,8 @@ All MVP milestones completed. See:
 3. **Batch stride bug**: `stride_zx_d` → `stride_zx_b`，导致 bs>1 完全错误
 4. **A 计算算符优先级**: `-(softplus.clamp(...))` vs `(-softplus).clamp(...)` → 匹配 reference 的求值顺序
 
+> **Correction (2026-11-11)**: matching the reference here kept a bug. `-(softplus(dd_A).clamp(max=-A_floor))` makes `A` the constant `+A_floor`, so `exp(A*DT) > 1` and the state grows on every step. The PyTorch code now negates first: `(-softplus(dd_A)).clamp(max=-A_floor)`. Both full-step kernels compute the same value as `-max(softplus(dd_A), A_floor)`. See "Decay sign fix" in the README.
+
 ---
 
 ## P0+P1 Phase (2026-04-15)
